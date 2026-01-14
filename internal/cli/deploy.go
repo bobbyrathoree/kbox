@@ -70,38 +70,76 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 
 	// Load config
 	loader := config.NewLoader(".")
-	cfg, err := loader.Load()
+
+	// Check if this is a multi-service config
+	isMulti, err := loader.IsMultiService()
 	if err != nil {
 		return finalize(fmt.Errorf("failed to load kbox.yaml: %w\n  → Run 'kbox init' to create one, or use 'kbox up' for zero-config deploy", err))
 	}
 
-	result.App = cfg.Metadata.Name
+	var bundle *render.Bundle
+	var appName string
+	var targetNamespace string
 
-	// Apply environment overlay
-	if env != "" {
-		cfg = cfg.ForEnvironment(env)
-	}
+	if isMulti {
+		// Handle multi-service config
+		multiCfg, err := loader.LoadMultiService()
+		if err != nil {
+			return finalize(fmt.Errorf("failed to load kbox.yaml: %w", err))
+		}
 
-	// Override namespace if specified
-	if namespace != "" {
-		cfg.Metadata.Namespace = namespace
-	}
+		appName = multiCfg.Metadata.Name
+		result.App = appName
 
-	// Check if we have an image
-	if cfg.Spec.Image == "" && cfg.Spec.Build == nil {
-		return finalize(fmt.Errorf("no image specified and no build configuration - use 'kbox up' for build+deploy"))
-	}
+		// Override namespace if specified
+		if namespace != "" {
+			multiCfg.Metadata.Namespace = namespace
+		}
+		targetNamespace = multiCfg.Metadata.Namespace
 
-	// If only build config, use a placeholder image
-	if cfg.Spec.Image == "" && cfg.Spec.Build != nil {
-		cfg.Spec.Image = fmt.Sprintf("%s:latest", cfg.Metadata.Name)
-	}
+		// Render using multi-service renderer
+		renderer := render.NewMultiService(multiCfg)
+		bundle, err = renderer.Render()
+		if err != nil {
+			return finalize(fmt.Errorf("failed to render: %w", err))
+		}
+	} else {
+		// Handle single-service config
+		cfg, err := loader.Load()
+		if err != nil {
+			return finalize(fmt.Errorf("failed to load kbox.yaml: %w\n  → Run 'kbox init' to create one, or use 'kbox up' for zero-config deploy", err))
+		}
 
-	// Render
-	renderer := render.New(cfg)
-	bundle, err := renderer.Render()
-	if err != nil {
-		return finalize(fmt.Errorf("failed to render: %w", err))
+		appName = cfg.Metadata.Name
+		result.App = appName
+
+		// Apply environment overlay
+		if env != "" {
+			cfg = cfg.ForEnvironment(env)
+		}
+
+		// Override namespace if specified
+		if namespace != "" {
+			cfg.Metadata.Namespace = namespace
+		}
+		targetNamespace = cfg.Metadata.Namespace
+
+		// Check if we have an image
+		if cfg.Spec.Image == "" && cfg.Spec.Build == nil {
+			return finalize(fmt.Errorf("no image specified and no build configuration - use 'kbox up' for build+deploy"))
+		}
+
+		// If only build config, use a placeholder image
+		if cfg.Spec.Image == "" && cfg.Spec.Build != nil {
+			cfg.Spec.Image = fmt.Sprintf("%s:latest", cfg.Metadata.Name)
+		}
+
+		// Render
+		renderer := render.New(cfg)
+		bundle, err = renderer.Render()
+		if err != nil {
+			return finalize(fmt.Errorf("failed to render: %w", err))
+		}
 	}
 
 	// Dry run - just show what would be applied
@@ -123,7 +161,7 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 
 	result.Context = client.Context
 
-	targetNS := cfg.Metadata.Namespace
+	targetNS := targetNamespace
 	if targetNS == "" {
 		targetNS = client.Namespace
 	}
@@ -131,7 +169,7 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 
 	// Print header (unless CI mode with JSON output)
 	if !ciMode || outputFormat != "json" {
-		fmt.Printf("Deploying %s to %s (context: %s)\n", cfg.Metadata.Name, targetNS, client.Context)
+		fmt.Printf("Deploying %s to %s (context: %s)\n", appName, targetNS, client.Context)
 		if env != "" {
 			fmt.Printf("Environment: %s\n", env)
 		}
@@ -185,16 +223,19 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Save release to history
-	store := release.NewStore(client.Clientset, targetNS, cfg.Metadata.Name)
-	revision, err := store.Save(cmd.Context(), cfg)
-	if err != nil {
-		// Non-fatal - deployment succeeded
-		if !ciMode {
-			fmt.Fprintf(os.Stderr, "Warning: failed to save release history: %v\n", err)
+	// Save release to history (single-service only for now)
+	if !isMulti {
+		cfg, _ := loader.Load()
+		store := release.NewStore(client.Clientset, targetNS, appName)
+		revision, err := store.Save(cmd.Context(), cfg)
+		if err != nil {
+			// Non-fatal - deployment succeeded
+			if !ciMode {
+				fmt.Fprintf(os.Stderr, "Warning: failed to save release history: %v\n", err)
+			}
 		}
+		result.Revision = revision
 	}
-	result.Revision = revision
 
 	// Mark success
 	result.Success = true
@@ -204,8 +245,8 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 		fmt.Println()
 		fmt.Printf("Deploy complete: %d created, %d updated\n",
 			len(applyResult.Created), len(applyResult.Updated))
-		if revision > 0 {
-			fmt.Printf("Release %s saved (rollback available)\n", release.FormatRevision(revision))
+		if result.Revision > 0 {
+			fmt.Printf("Release %s saved (rollback available)\n", release.FormatRevision(result.Revision))
 		}
 	}
 

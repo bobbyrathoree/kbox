@@ -11,10 +11,12 @@ import (
 // Bundle contains all rendered Kubernetes objects for an app
 type Bundle struct {
 	// Objects in apply order
-	Namespace  *corev1.Namespace
-	ConfigMaps []*corev1.ConfigMap
-	Secrets    []*corev1.Secret
-	Services   []*corev1.Service
+	Namespace   *corev1.Namespace
+	ConfigMaps  []*corev1.ConfigMap
+	Secrets     []*corev1.Secret
+	Services    []*corev1.Service
+	Deployments []*appsv1.Deployment
+	// Deployment is kept for backward compatibility (points to first deployment)
 	Deployment *appsv1.Deployment
 }
 
@@ -34,7 +36,12 @@ func (b *Bundle) AllObjects() []runtime.Object {
 	for _, svc := range b.Services {
 		objects = append(objects, svc)
 	}
-	if b.Deployment != nil {
+	// Use Deployments slice if populated, otherwise fall back to single Deployment
+	if len(b.Deployments) > 0 {
+		for _, dep := range b.Deployments {
+			objects = append(objects, dep)
+		}
+	} else if b.Deployment != nil {
 		objects = append(objects, b.Deployment)
 	}
 
@@ -61,6 +68,7 @@ func (r *Renderer) Render() (*Bundle, error) {
 		return nil, err
 	}
 	bundle.Deployment = deployment
+	bundle.Deployments = []*appsv1.Deployment{deployment}
 
 	// Render Service
 	service, err := r.RenderService()

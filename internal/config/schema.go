@@ -166,10 +166,55 @@ type EnvOverride struct {
 	Ingress *IngressConfig `yaml:"ingress,omitempty" json:"ingress,omitempty"`
 }
 
+// MultiServiceConfig represents a multi-service kbox.yaml configuration
+type MultiServiceConfig struct {
+	APIVersion string                 `yaml:"apiVersion" json:"apiVersion"`
+	Kind       string                 `yaml:"kind" json:"kind"` // "MultiApp"
+	Metadata   Metadata               `yaml:"metadata" json:"metadata"`
+	Services   map[string]ServiceSpec `yaml:"services" json:"services"`
+}
+
+// ServiceSpec defines a single service in a multi-service app
+type ServiceSpec struct {
+	// Build configuration for building images
+	Build *BuildConfig `yaml:"build,omitempty" json:"build,omitempty"`
+
+	// Image is the container image
+	Image string `yaml:"image,omitempty" json:"image,omitempty"`
+
+	// Port the service listens on
+	Port int `yaml:"port,omitempty" json:"port,omitempty"`
+
+	// Replicas count
+	Replicas int `yaml:"replicas,omitempty" json:"replicas,omitempty"`
+
+	// Env variables
+	Env map[string]string `yaml:"env,omitempty" json:"env,omitempty"`
+
+	// DependsOn lists services this one depends on
+	DependsOn []string `yaml:"dependsOn,omitempty" json:"dependsOn,omitempty"`
+
+	// HealthCheck path
+	HealthCheck string `yaml:"healthCheck,omitempty" json:"healthCheck,omitempty"`
+
+	// Resources requests and limits
+	Resources *ResourceConfig `yaml:"resources,omitempty" json:"resources,omitempty"`
+
+	// Command override
+	Command []string `yaml:"command,omitempty" json:"command,omitempty"`
+
+	// Args override
+	Args []string `yaml:"args,omitempty" json:"args,omitempty"`
+
+	// Service configuration
+	Service *ServiceConfig `yaml:"service,omitempty" json:"service,omitempty"`
+}
+
 // Defaults for the config
 const (
 	DefaultAPIVersion = "kbox.dev/v1"
 	DefaultKind       = "App"
+	MultiAppKind      = "MultiApp"
 	DefaultPort       = 8080
 	DefaultReplicas   = 1
 )

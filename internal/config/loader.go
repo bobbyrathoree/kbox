@@ -92,6 +92,39 @@ func (l *Loader) LoadOrDefault(name string) (*AppConfig, error) {
 	return NewDefaultConfig(name), nil
 }
 
+// IsMultiService checks if the config file is a multi-service config
+func (l *Loader) IsMultiService() (bool, error) {
+	path, err := l.FindConfigFile()
+	if err != nil {
+		return false, err
+	}
+	return IsMultiService(path)
+}
+
+// LoadMultiService loads the config as a multi-service config
+func (l *Loader) LoadMultiService() (*MultiServiceConfig, error) {
+	path, err := l.FindConfigFile()
+	if err != nil {
+		return nil, err
+	}
+	return l.LoadMultiServiceFile(path)
+}
+
+// LoadMultiServiceFile loads multi-service config from a specific path
+func (l *Loader) LoadMultiServiceFile(path string) (*MultiServiceConfig, error) {
+	cfg, err := LoadMultiService(path)
+	if err != nil {
+		return nil, err
+	}
+
+	// Validate
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+
+	return cfg, nil
+}
+
 // InferFromDockerfile attempts to infer config from a Dockerfile
 func InferFromDockerfile(dir string) (*AppConfig, error) {
 	dockerfilePath := filepath.Join(dir, "Dockerfile")

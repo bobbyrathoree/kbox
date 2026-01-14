@@ -26,52 +26,90 @@ Examples:
 
 func runRender(cmd *cobra.Command, args []string) error {
 	env, _ := cmd.Flags().GetString("env")
-	configFile, _ := cmd.Flags().GetString("file")
+	ciMode := IsCIMode(cmd)
 
-	// Load config
-	var loader *config.Loader
-	if configFile != "" {
-		loader = config.NewLoader(".")
-	} else {
-		loader = config.NewLoader(".")
-	}
+	loader := config.NewLoader(".")
 
-	cfg, err := loader.Load()
+	// Check if this is a multi-service config
+	isMulti, err := loader.IsMultiService()
 	if err != nil {
 		// Try to infer from Dockerfile
-		cfg, err = config.InferFromDockerfile(".")
+		cfg, err := config.InferFromDockerfile(".")
 		if err != nil {
 			return fmt.Errorf("no kbox.yaml or Dockerfile found\n  → Create a Dockerfile or run 'kbox init' to get started")
 		}
-		fmt.Fprintln(os.Stderr, "No kbox.yaml found, inferring from Dockerfile...")
+		if !ciMode {
+			fmt.Fprintln(os.Stderr, "No kbox.yaml found, inferring from Dockerfile...")
+		}
+
+		// Render inferred config
+		renderer := render.New(cfg)
+		bundle, err := renderer.Render()
+		if err != nil {
+			return fmt.Errorf("failed to render: %w", err)
+		}
+
+		if !ciMode {
+			fmt.Fprintln(os.Stderr)
+		}
+		return bundle.ToYAML(os.Stdout)
 	}
 
-	// Apply environment overlay
-	if env != "" {
-		cfg = cfg.ForEnvironment(env)
-		fmt.Fprintf(os.Stderr, "Using environment: %s\n", env)
-	}
+	var bundle *render.Bundle
 
-	// Check if we have an image
-	if cfg.Spec.Image == "" && cfg.Spec.Build == nil {
-		return fmt.Errorf("no image specified and no build configuration\n  → Add 'image:' to kbox.yaml or use 'kbox up' for build+deploy")
-	}
+	if isMulti {
+		// Handle multi-service config
+		multiCfg, err := loader.LoadMultiService()
+		if err != nil {
+			return fmt.Errorf("failed to load kbox.yaml: %w", err)
+		}
 
-	// If only build config, use a placeholder image
-	if cfg.Spec.Image == "" && cfg.Spec.Build != nil {
-		cfg.Spec.Image = fmt.Sprintf("%s:latest", cfg.Metadata.Name)
-		fmt.Fprintf(os.Stderr, "Using image: %s (from build config)\n", cfg.Spec.Image)
-	}
+		// Render using multi-service renderer
+		renderer := render.NewMultiService(multiCfg)
+		bundle, err = renderer.Render()
+		if err != nil {
+			return fmt.Errorf("failed to render: %w", err)
+		}
+	} else {
+		// Handle single-service config
+		cfg, err := loader.Load()
+		if err != nil {
+			return fmt.Errorf("failed to load kbox.yaml: %w", err)
+		}
 
-	// Render
-	renderer := render.New(cfg)
-	bundle, err := renderer.Render()
-	if err != nil {
-		return fmt.Errorf("failed to render: %w", err)
+		// Apply environment overlay
+		if env != "" {
+			cfg = cfg.ForEnvironment(env)
+			if !ciMode {
+				fmt.Fprintf(os.Stderr, "Using environment: %s\n", env)
+			}
+		}
+
+		// Check if we have an image
+		if cfg.Spec.Image == "" && cfg.Spec.Build == nil {
+			return fmt.Errorf("no image specified and no build configuration\n  → Add 'image:' to kbox.yaml or use 'kbox up' for build+deploy")
+		}
+
+		// If only build config, use a placeholder image
+		if cfg.Spec.Image == "" && cfg.Spec.Build != nil {
+			cfg.Spec.Image = fmt.Sprintf("%s:latest", cfg.Metadata.Name)
+			if !ciMode {
+				fmt.Fprintf(os.Stderr, "Using image: %s (from build config)\n", cfg.Spec.Image)
+			}
+		}
+
+		// Render
+		renderer := render.New(cfg)
+		bundle, err = renderer.Render()
+		if err != nil {
+			return fmt.Errorf("failed to render: %w", err)
+		}
 	}
 
 	// Output YAML
-	fmt.Fprintln(os.Stderr) // Blank line before YAML
+	if !ciMode {
+		fmt.Fprintln(os.Stderr) // Blank line before YAML
+	}
 	return bundle.ToYAML(os.Stdout)
 }
 
