@@ -225,9 +225,9 @@ func TestIsValidName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := isValidName(tt.name)
+			got := IsValidName(tt.name)
 			if got != tt.valid {
-				t.Errorf("isValidName(%q) = %v, want %v", tt.name, got, tt.valid)
+				t.Errorf("IsValidName(%q) = %v, want %v", tt.name, got, tt.valid)
 			}
 		})
 	}

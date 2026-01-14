@@ -55,7 +55,7 @@ func Validate(config *AppConfig) error {
 			Field:   "metadata.name",
 			Message: "required",
 		})
-	} else if !isValidName(config.Metadata.Name) {
+	} else if !IsValidName(config.Metadata.Name) {
 		errs = append(errs, ValidationError{
 			Field:   "metadata.name",
 			Message: "must be lowercase alphanumeric with hyphens, max 63 chars",
@@ -127,8 +127,8 @@ func Validate(config *AppConfig) error {
 	return nil
 }
 
-// isValidName checks if a name is a valid Kubernetes name
-func isValidName(name string) bool {
+// IsValidName checks if a name is a valid Kubernetes name
+func IsValidName(name string) bool {
 	if len(name) == 0 || len(name) > 63 {
 		return false
 	}
