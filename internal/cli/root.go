@@ -5,6 +5,8 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+
+	"github.com/bobbyrathoree/kbox/internal/output"
 )
 
 var (
@@ -47,4 +49,35 @@ func init() {
 	rootCmd.PersistentFlags().StringP("namespace", "n", "", "Kubernetes namespace (default: from kubeconfig)")
 	rootCmd.PersistentFlags().StringP("context", "", "", "Kubernetes context (default: current context)")
 	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "Enable verbose output")
+
+	// CI mode flags
+	rootCmd.PersistentFlags().Bool("ci", false, "CI mode: no prompts, clean exit codes, minimal output")
+	rootCmd.PersistentFlags().StringP("output", "o", "text", "Output format: text, json")
+}
+
+// IsCIMode returns true if CI mode is enabled via flag or environment
+func IsCIMode(cmd *cobra.Command) bool {
+	ci, _ := cmd.Flags().GetBool("ci")
+	if ci {
+		return true
+	}
+	// Also check environment variables
+	if os.Getenv("CI") == "true" || os.Getenv("KBOX_CI") == "true" {
+		return true
+	}
+	return false
+}
+
+// GetOutputFormat returns the output format (text or json)
+func GetOutputFormat(cmd *cobra.Command) string {
+	format, _ := cmd.Flags().GetString("output")
+	if format == "" {
+		format = "text"
+	}
+	return format
+}
+
+// NewOutputWriter creates an output writer based on command flags
+func NewOutputWriter(cmd *cobra.Command) *output.Writer {
+	return output.NewWriter(os.Stdout, GetOutputFormat(cmd), IsCIMode(cmd))
 }

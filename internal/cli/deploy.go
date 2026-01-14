@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -9,6 +10,7 @@ import (
 	"github.com/bobbyrathoree/kbox/internal/apply"
 	"github.com/bobbyrathoree/kbox/internal/config"
 	"github.com/bobbyrathoree/kbox/internal/k8s"
+	"github.com/bobbyrathoree/kbox/internal/output"
 	"github.com/bobbyrathoree/kbox/internal/release"
 	"github.com/bobbyrathoree/kbox/internal/render"
 )
@@ -37,12 +39,43 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 	namespace, _ := cmd.Flags().GetString("namespace")
 	kubeContext, _ := cmd.Flags().GetString("context")
 
+	// CI mode and output format
+	ciMode := IsCIMode(cmd)
+	outputFormat := GetOutputFormat(cmd)
+	timer := output.NewTimer()
+
+	// Prepare result for CI/JSON output
+	result := &output.DeployResult{
+		Success: false,
+	}
+
+	// Helper to finalize and return
+	finalize := func(err error) error {
+		result.DurationMs = timer.ElapsedMs()
+		if err != nil {
+			result.Error = err.Error()
+		}
+
+		// JSON output
+		if outputFormat == "json" {
+			output.NewWriter(os.Stdout, outputFormat, ciMode).WriteDeployResult(result)
+			if !result.Success {
+				os.Exit(1)
+			}
+			return nil
+		}
+
+		return err
+	}
+
 	// Load config
 	loader := config.NewLoader(".")
 	cfg, err := loader.Load()
 	if err != nil {
-		return fmt.Errorf("failed to load kbox.yaml: %w\n  → Run 'kbox init' to create one, or use 'kbox up' for zero-config deploy", err)
+		return finalize(fmt.Errorf("failed to load kbox.yaml: %w\n  → Run 'kbox init' to create one, or use 'kbox up' for zero-config deploy", err))
 	}
+
+	result.App = cfg.Metadata.Name
 
 	// Apply environment overlay
 	if env != "" {
@@ -56,7 +89,7 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 
 	// Check if we have an image
 	if cfg.Spec.Image == "" && cfg.Spec.Build == nil {
-		return fmt.Errorf("no image specified and no build configuration - use 'kbox up' for build+deploy")
+		return finalize(fmt.Errorf("no image specified and no build configuration - use 'kbox up' for build+deploy"))
 	}
 
 	// If only build config, use a placeholder image
@@ -68,12 +101,14 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 	renderer := render.New(cfg)
 	bundle, err := renderer.Render()
 	if err != nil {
-		return fmt.Errorf("failed to render: %w", err)
+		return finalize(fmt.Errorf("failed to render: %w", err))
 	}
 
 	// Dry run - just show what would be applied
 	if dryRun {
-		fmt.Println("Dry run - would apply:")
+		if !ciMode {
+			fmt.Println("Dry run - would apply:")
+		}
 		return bundle.ToYAML(os.Stdout)
 	}
 
@@ -83,41 +118,70 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 		Namespace: namespace,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to connect to cluster: %w\n  → Run 'kbox doctor' to diagnose connection issues", err)
+		return finalize(fmt.Errorf("failed to connect to cluster: %w\n  → Run 'kbox doctor' to diagnose connection issues", err))
 	}
+
+	result.Context = client.Context
 
 	targetNS := cfg.Metadata.Namespace
 	if targetNS == "" {
 		targetNS = client.Namespace
 	}
+	result.Namespace = targetNS
 
-	// Print header
-	fmt.Printf("Deploying %s to %s (context: %s)\n", cfg.Metadata.Name, targetNS, client.Context)
-	if env != "" {
-		fmt.Printf("Environment: %s\n", env)
+	// Print header (unless CI mode with JSON output)
+	if !ciMode || outputFormat != "json" {
+		fmt.Printf("Deploying %s to %s (context: %s)\n", cfg.Metadata.Name, targetNS, client.Context)
+		if env != "" {
+			fmt.Printf("Environment: %s\n", env)
+		}
+		fmt.Println()
 	}
-	fmt.Println()
+
+	// Determine output writer for apply engine
+	var applyOut io.Writer = os.Stdout
+	if ciMode && outputFormat == "json" {
+		applyOut = io.Discard // Suppress apply output in JSON mode
+	}
 
 	// Apply
-	engine := apply.NewEngine(client.Clientset, os.Stdout)
-	result, err := engine.Apply(cmd.Context(), bundle)
+	engine := apply.NewEngine(client.Clientset, applyOut)
+	applyResult, err := engine.Apply(cmd.Context(), bundle)
 	if err != nil {
-		return err
+		return finalize(err)
+	}
+
+	// Build resource results
+	for _, name := range applyResult.Created {
+		result.Resources = append(result.Resources, output.ResourceResult{
+			Kind:   extractKind(name),
+			Name:   extractName(name),
+			Action: "created",
+		})
+	}
+	for _, name := range applyResult.Updated {
+		result.Resources = append(result.Resources, output.ResourceResult{
+			Kind:   extractKind(name),
+			Name:   extractName(name),
+			Action: "updated",
+		})
 	}
 
 	// Check for errors
-	if len(result.Errors) > 0 {
-		fmt.Fprintln(os.Stderr, "\nErrors:")
-		for _, e := range result.Errors {
-			fmt.Fprintf(os.Stderr, "  - %v\n", e)
+	if len(applyResult.Errors) > 0 {
+		if !ciMode {
+			fmt.Fprintln(os.Stderr, "\nErrors:")
+			for _, e := range applyResult.Errors {
+				fmt.Fprintf(os.Stderr, "  - %v\n", e)
+			}
 		}
-		return fmt.Errorf("deploy completed with %d errors", len(result.Errors))
+		return finalize(fmt.Errorf("deploy completed with %d errors", len(applyResult.Errors)))
 	}
 
 	// Wait for rollout
 	if !noWait && bundle.Deployment != nil {
 		if err := engine.WaitForRollout(cmd.Context(), targetNS, bundle.Deployment.Name); err != nil {
-			return fmt.Errorf("rollout failed: %w\n  → Run 'kbox logs' to see pod logs\n  → Run 'kbox status' to check deployment state", err)
+			return finalize(fmt.Errorf("rollout failed: %w\n  → Run 'kbox logs' to see pod logs\n  → Run 'kbox status' to check deployment state", err))
 		}
 	}
 
@@ -126,18 +190,46 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 	revision, err := store.Save(cmd.Context(), cfg)
 	if err != nil {
 		// Non-fatal - deployment succeeded
-		fmt.Fprintf(os.Stderr, "Warning: failed to save release history: %v\n", err)
+		if !ciMode {
+			fmt.Fprintf(os.Stderr, "Warning: failed to save release history: %v\n", err)
+		}
+	}
+	result.Revision = revision
+
+	// Mark success
+	result.Success = true
+
+	// Summary (unless JSON mode)
+	if outputFormat != "json" {
+		fmt.Println()
+		fmt.Printf("Deploy complete: %d created, %d updated\n",
+			len(applyResult.Created), len(applyResult.Updated))
+		if revision > 0 {
+			fmt.Printf("Release %s saved (rollback available)\n", release.FormatRevision(revision))
+		}
 	}
 
-	// Summary
-	fmt.Println()
-	fmt.Printf("Deploy complete: %d created, %d updated\n",
-		len(result.Created), len(result.Updated))
-	if revision > 0 {
-		fmt.Printf("Release %s saved (rollback available)\n", release.FormatRevision(revision))
-	}
+	return finalize(nil)
+}
 
-	return nil
+// extractKind extracts the kind from "Kind/Name" format
+func extractKind(s string) string {
+	for i, c := range s {
+		if c == '/' {
+			return s[:i]
+		}
+	}
+	return s
+}
+
+// extractName extracts the name from "Kind/Name" format
+func extractName(s string) string {
+	for i, c := range s {
+		if c == '/' {
+			return s[i+1:]
+		}
+	}
+	return s
 }
 
 func init() {
