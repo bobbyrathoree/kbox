@@ -69,6 +69,11 @@ func runUp(cmd *cobra.Command, args []string) error {
 		fmt.Println()
 	}
 
+	// Use config name if available (overrides directory name)
+	if cfg.Metadata.Name != "" {
+		appName = cfg.Metadata.Name
+	}
+
 	// Apply environment overlay
 	if env != "" {
 		cfg = cfg.ForEnvironment(env)
