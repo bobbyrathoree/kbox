@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/spf13/cobra"
+
 	"github.com/bobbyrathoree/kbox/internal/apply"
 	"github.com/bobbyrathoree/kbox/internal/config"
 	"github.com/bobbyrathoree/kbox/internal/k8s"
+	"github.com/bobbyrathoree/kbox/internal/release"
 	"github.com/bobbyrathoree/kbox/internal/render"
-	"github.com/spf13/cobra"
 )
 
 var deployCmd = &cobra.Command{
@@ -119,10 +121,21 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Save release to history
+	store := release.NewStore(client.Clientset, targetNS, cfg.Metadata.Name)
+	revision, err := store.Save(cmd.Context(), cfg)
+	if err != nil {
+		// Non-fatal - deployment succeeded
+		fmt.Fprintf(os.Stderr, "Warning: failed to save release history: %v\n", err)
+	}
+
 	// Summary
 	fmt.Println()
 	fmt.Printf("Deploy complete: %d created, %d updated\n",
 		len(result.Created), len(result.Updated))
+	if revision > 0 {
+		fmt.Printf("Release %s saved (rollback available)\n", release.FormatRevision(revision))
+	}
 
 	return nil
 }
