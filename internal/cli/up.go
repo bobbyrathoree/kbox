@@ -25,7 +25,7 @@ var upCmd = &cobra.Command{
 	Short: "Build and deploy with zero config",
 	Long: `Build and deploy an application with minimal configuration.
 
-This is the "Bun moment" for kbox - it works with just a Dockerfile:
+Works with just a Dockerfile:
   1. Detects settings from Dockerfile (EXPOSE port, etc.)
   2. Builds a container image
   3. Loads it into your local cluster (kind/minikube)
@@ -60,7 +60,7 @@ func runUp(cmd *cobra.Command, args []string) error {
 		// Infer from Dockerfile
 		cfg, err = config.InferFromDockerfile(workDir)
 		if err != nil {
-			return fmt.Errorf("no kbox.yaml and no Dockerfile found")
+			return fmt.Errorf("no kbox.yaml or Dockerfile found in %s\n  → Create a Dockerfile or run 'kbox init'", workDir)
 		}
 		fmt.Println("No kbox.yaml found. Using defaults:")
 		fmt.Printf("  name: %s (from directory)\n", cfg.Metadata.Name)
@@ -91,7 +91,7 @@ func runUp(cmd *cobra.Command, args []string) error {
 		Namespace: namespace,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to connect to cluster: %w", err)
+		return fmt.Errorf("failed to connect to cluster: %w\n  → Run 'kbox doctor' to diagnose connection issues", err)
 	}
 
 	targetNS := cfg.Metadata.Namespace

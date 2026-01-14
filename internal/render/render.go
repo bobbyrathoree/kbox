@@ -87,6 +87,15 @@ func (r *Renderer) Render() (*Bundle, error) {
 		bundle.Secrets = append(bundle.Secrets, secret)
 	}
 
+	// Render Secrets from SOPS-encrypted files if configured
+	if r.config.Spec.Secrets != nil && len(r.config.Spec.Secrets.FromSops) > 0 {
+		secret, err := r.RenderSecretFromSops()
+		if err != nil {
+			return nil, err
+		}
+		bundle.Secrets = append(bundle.Secrets, secret)
+	}
+
 	return bundle, nil
 }
 
@@ -96,6 +105,19 @@ func (r *Renderer) RenderSecretFromEnvFile() (*corev1.Secret, error) {
 	secretName := r.config.Metadata.Name + "-secrets"
 
 	secret, err := secrets.LoadAndCreateSecret(envFile, secretName, r.Namespace(), r.Labels())
+	if err != nil {
+		return nil, err
+	}
+
+	return secret, nil
+}
+
+// RenderSecretFromSops creates a Secret from SOPS-encrypted files
+func (r *Renderer) RenderSecretFromSops() (*corev1.Secret, error) {
+	sopsFiles := r.config.Spec.Secrets.FromSops
+	secretName := r.config.Metadata.Name + "-sops-secrets"
+
+	secret, err := secrets.LoadSopsAndCreateSecret(sopsFiles, secretName, r.Namespace(), r.Labels())
 	if err != nil {
 		return nil, err
 	}

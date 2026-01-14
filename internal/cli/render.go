@@ -41,7 +41,7 @@ func runRender(cmd *cobra.Command, args []string) error {
 		// Try to infer from Dockerfile
 		cfg, err = config.InferFromDockerfile(".")
 		if err != nil {
-			return fmt.Errorf("no kbox.yaml found and no Dockerfile to infer from: %w", err)
+			return fmt.Errorf("no kbox.yaml or Dockerfile found\n  → Create a Dockerfile or run 'kbox init' to get started")
 		}
 		fmt.Fprintln(os.Stderr, "No kbox.yaml found, inferring from Dockerfile...")
 	}
@@ -54,7 +54,7 @@ func runRender(cmd *cobra.Command, args []string) error {
 
 	// Check if we have an image
 	if cfg.Spec.Image == "" && cfg.Spec.Build == nil {
-		return fmt.Errorf("no image specified and no build configuration")
+		return fmt.Errorf("no image specified and no build configuration\n  → Add 'image:' to kbox.yaml or use 'kbox up' for build+deploy")
 	}
 
 	// If only build config, use a placeholder image

@@ -127,9 +127,21 @@ func (r *Renderer) renderEnvVars() []corev1.EnvVar {
 func (r *Renderer) renderEnvFrom() []corev1.EnvFromSource {
 	var envFrom []corev1.EnvFromSource
 
-	// Add secret reference if configured
+	// Add secret reference for .env file if configured
 	if r.config.Spec.Secrets != nil && r.config.Spec.Secrets.FromEnvFile != "" {
 		secretName := r.config.Metadata.Name + "-secrets"
+		envFrom = append(envFrom, corev1.EnvFromSource{
+			SecretRef: &corev1.SecretEnvSource{
+				LocalObjectReference: corev1.LocalObjectReference{
+					Name: secretName,
+				},
+			},
+		})
+	}
+
+	// Add secret reference for SOPS files if configured
+	if r.config.Spec.Secrets != nil && len(r.config.Spec.Secrets.FromSops) > 0 {
+		secretName := r.config.Metadata.Name + "-sops-secrets"
 		envFrom = append(envFrom, corev1.EnvFromSource{
 			SecretRef: &corev1.SecretEnvSource{
 				LocalObjectReference: corev1.LocalObjectReference{

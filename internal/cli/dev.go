@@ -85,13 +85,13 @@ func runDev(ctx context.Context, opts devOptions) error {
 	if loader.HasConfigFile() {
 		cfg, err = loader.Load()
 		if err != nil {
-			return fmt.Errorf("failed to load kbox.yaml: %w", err)
+			return fmt.Errorf("failed to load kbox.yaml: %w\n  → Check your kbox.yaml syntax or run 'kbox init' to create a new one", err)
 		}
 	} else {
 		// Zero-config mode - infer from Dockerfile
 		cfg, err = config.InferFromDockerfile(".")
 		if err != nil {
-			return fmt.Errorf("no kbox.yaml found and could not infer from Dockerfile: %w", err)
+			return fmt.Errorf("no kbox.yaml or Dockerfile found\n  → Create a Dockerfile or run 'kbox init' to get started")
 		}
 		fmt.Printf("No kbox.yaml found. Using defaults:\n")
 		fmt.Printf("  name: %s (from directory name)\n", cfg.Metadata.Name)
@@ -105,7 +105,7 @@ func runDev(ctx context.Context, opts devOptions) error {
 		Namespace: opts.namespace,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to connect to cluster: %w", err)
+		return fmt.Errorf("failed to connect to cluster: %w\n  → Run 'kbox doctor' to diagnose connection issues", err)
 	}
 
 	targetNS := cfg.Metadata.Namespace
@@ -242,7 +242,7 @@ func devBuildAndDeploy(ctx context.Context, cfg *config.AppConfig, client *k8s.C
 
 	// Wait for rollout
 	if err := engine.WaitForRollout(ctx, namespace, cfg.Metadata.Name); err != nil {
-		return fmt.Errorf("rollout failed: %w", err)
+		return fmt.Errorf("rollout failed: %w\n  → Check pod logs for details", err)
 	}
 
 	// Save release

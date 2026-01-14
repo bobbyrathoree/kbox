@@ -41,7 +41,7 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 	loader := config.NewLoader(".")
 	cfg, err := loader.Load()
 	if err != nil {
-		return fmt.Errorf("failed to load kbox.yaml: %w", err)
+		return fmt.Errorf("failed to load kbox.yaml: %w\n  → Run 'kbox init' to create one, or use 'kbox up' for zero-config deploy", err)
 	}
 
 	// Apply environment overlay
@@ -83,7 +83,7 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 		Namespace: namespace,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to connect to cluster: %w", err)
+		return fmt.Errorf("failed to connect to cluster: %w\n  → Run 'kbox doctor' to diagnose connection issues", err)
 	}
 
 	targetNS := cfg.Metadata.Namespace
@@ -117,7 +117,7 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 	// Wait for rollout
 	if !noWait && bundle.Deployment != nil {
 		if err := engine.WaitForRollout(cmd.Context(), targetNS, bundle.Deployment.Name); err != nil {
-			return fmt.Errorf("rollout failed: %w", err)
+			return fmt.Errorf("rollout failed: %w\n  → Run 'kbox logs' to see pod logs\n  → Run 'kbox status' to check deployment state", err)
 		}
 	}
 

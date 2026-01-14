@@ -47,7 +47,7 @@ Use this before 'kbox deploy' to verify what will happen.`,
 				cfg, err = loader.Load()
 			}
 			if err != nil {
-				return fmt.Errorf("failed to load config: %w", err)
+				return fmt.Errorf("failed to load config: %w\n  → Run 'kbox init' to create a kbox.yaml", err)
 			}
 
 			// Apply environment overlay
@@ -72,7 +72,7 @@ Use this before 'kbox deploy' to verify what will happen.`,
 			// Get K8s client
 			client, err := k8s.NewClient(k8s.ClientOptions{})
 			if err != nil {
-				return fmt.Errorf("failed to create Kubernetes client: %w", err)
+				return fmt.Errorf("failed to connect to cluster: %w\n  → Run 'kbox doctor' to diagnose connection issues", err)
 			}
 
 			// Render the bundle

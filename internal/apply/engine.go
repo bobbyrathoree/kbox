@@ -129,7 +129,7 @@ func (e *Engine) WaitForRollout(ctx context.Context, namespace, name string) err
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-timeout:
-			return fmt.Errorf("timeout waiting for rollout")
+			return fmt.Errorf("timeout waiting for rollout\n  → Run 'kbox logs' to check for errors\n  → Run 'kbox status' to see pod state")
 		case <-ticker.C:
 			dep, err := e.client.AppsV1().Deployments(namespace).Get(ctx, name, metav1.GetOptions{})
 			if err != nil {
@@ -214,7 +214,10 @@ func (e *Engine) applyObject(ctx context.Context, obj runtime.Object, resource, 
 
 	if err != nil {
 		if errors.IsNotFound(err) {
-			return false, fmt.Errorf("namespace %s does not exist", namespace)
+			return false, fmt.Errorf("namespace %q does not exist\n  → Create it: kubectl create namespace %s", namespace, namespace)
+		}
+		if errors.IsForbidden(err) {
+			return false, fmt.Errorf("permission denied: %w\n  → Check your RBAC permissions for the target namespace", err)
 		}
 		return false, err
 	}

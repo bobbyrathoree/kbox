@@ -47,7 +47,7 @@ func (l *Loader) LoadFile(path string) (*AppConfig, error) {
 
 	var config AppConfig
 	if err := yaml.Unmarshal(data, &config); err != nil {
-		return nil, fmt.Errorf("failed to parse config file: %w", err)
+		return nil, fmt.Errorf("failed to parse config file: %w\n  → Check YAML syntax at https://yaml.org/spec/", err)
 	}
 
 	// Apply defaults
