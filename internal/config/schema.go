@@ -59,6 +59,24 @@ type AppSpec struct {
 
 	// Args override
 	Args []string `yaml:"args,omitempty" json:"args,omitempty"`
+
+	// Dependencies are managed database/cache services
+	Dependencies []DependencyConfig `yaml:"dependencies,omitempty" json:"dependencies,omitempty"`
+}
+
+// DependencyConfig defines a managed dependency like postgres or redis
+type DependencyConfig struct {
+	// Type is the dependency type (postgres, redis, mongodb, mysql)
+	Type string `yaml:"type" json:"type"`
+
+	// Version specifies the version (e.g., "15", "7")
+	Version string `yaml:"version,omitempty" json:"version,omitempty"`
+
+	// Storage size for persistent data (default: 1Gi)
+	Storage string `yaml:"storage,omitempty" json:"storage,omitempty"`
+
+	// Resources for the dependency container
+	Resources *ResourceConfig `yaml:"resources,omitempty" json:"resources,omitempty"`
 }
 
 // BuildConfig defines how to build the image

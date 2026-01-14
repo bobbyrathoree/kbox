@@ -11,16 +11,18 @@ import (
 // Bundle contains all rendered Kubernetes objects for an app
 type Bundle struct {
 	// Objects in apply order
-	Namespace   *corev1.Namespace
-	ConfigMaps  []*corev1.ConfigMap
-	Secrets     []*corev1.Secret
-	Services    []*corev1.Service
-	Deployments []*appsv1.Deployment
+	Namespace    *corev1.Namespace
+	ConfigMaps   []*corev1.ConfigMap
+	Secrets      []*corev1.Secret
+	Services     []*corev1.Service
+	StatefulSets []*appsv1.StatefulSet
+	Deployments  []*appsv1.Deployment
 	// Deployment is kept for backward compatibility (points to first deployment)
 	Deployment *appsv1.Deployment
 }
 
 // AllObjects returns all objects in the bundle in apply order
+// Order: Namespace, ConfigMaps, Secrets, Services, StatefulSets, Deployments
 func (b *Bundle) AllObjects() []runtime.Object {
 	var objects []runtime.Object
 
@@ -35,6 +37,10 @@ func (b *Bundle) AllObjects() []runtime.Object {
 	}
 	for _, svc := range b.Services {
 		objects = append(objects, svc)
+	}
+	// StatefulSets (databases) before Deployments (app)
+	for _, ss := range b.StatefulSets {
+		objects = append(objects, ss)
 	}
 	// Use Deployments slice if populated, otherwise fall back to single Deployment
 	if len(b.Deployments) > 0 {
@@ -62,11 +68,37 @@ func New(cfg *config.AppConfig) *Renderer {
 func (r *Renderer) Render() (*Bundle, error) {
 	bundle := &Bundle{}
 
-	// Render Deployment
+	// Render dependencies first (databases, caches)
+	var depEnvVars map[string]string
+	if len(r.config.Spec.Dependencies) > 0 {
+		statefulSets, depServices, depSecrets, envVars, err := r.RenderAllDependencies()
+		if err != nil {
+			return nil, err
+		}
+		bundle.StatefulSets = statefulSets
+		bundle.Services = append(bundle.Services, depServices...)
+		bundle.Secrets = append(bundle.Secrets, depSecrets...)
+		depEnvVars = envVars
+	}
+
+	// Render Deployment (with injected dependency env vars)
 	deployment, err := r.RenderDeployment()
 	if err != nil {
 		return nil, err
 	}
+
+	// Inject dependency environment variables into the app deployment
+	if len(depEnvVars) > 0 {
+		for i := range deployment.Spec.Template.Spec.Containers {
+			for k, v := range depEnvVars {
+				deployment.Spec.Template.Spec.Containers[i].Env = append(
+					deployment.Spec.Template.Spec.Containers[i].Env,
+					corev1.EnvVar{Name: k, Value: v},
+				)
+			}
+		}
+	}
+
 	bundle.Deployment = deployment
 	bundle.Deployments = []*appsv1.Deployment{deployment}
 
