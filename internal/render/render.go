@@ -2,6 +2,7 @@ package render
 
 import (
 	"github.com/bobbyrathoree/kbox/internal/config"
+	"github.com/bobbyrathoree/kbox/internal/secrets"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -77,7 +78,29 @@ func (r *Renderer) Render() (*Bundle, error) {
 		bundle.ConfigMaps = append(bundle.ConfigMaps, cm)
 	}
 
+	// Render Secrets from .env file if configured
+	if r.config.Spec.Secrets != nil && r.config.Spec.Secrets.FromEnvFile != "" {
+		secret, err := r.RenderSecretFromEnvFile()
+		if err != nil {
+			return nil, err
+		}
+		bundle.Secrets = append(bundle.Secrets, secret)
+	}
+
 	return bundle, nil
+}
+
+// RenderSecretFromEnvFile creates a Secret from a .env file
+func (r *Renderer) RenderSecretFromEnvFile() (*corev1.Secret, error) {
+	envFile := r.config.Spec.Secrets.FromEnvFile
+	secretName := r.config.Metadata.Name + "-secrets"
+
+	secret, err := secrets.LoadAndCreateSecret(envFile, secretName, r.Namespace(), r.Labels())
+	if err != nil {
+		return nil, err
+	}
+
+	return secret, nil
 }
 
 // Labels returns standard labels for the app

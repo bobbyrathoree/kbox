@@ -44,6 +44,9 @@ func (r *Renderer) RenderDeployment() (*appsv1.Deployment, error) {
 	// Add environment variables
 	container.Env = r.renderEnvVars()
 
+	// Add envFrom for secrets
+	container.EnvFrom = r.renderEnvFrom()
+
 	// Add resource requirements
 	container.Resources = r.renderResources()
 
@@ -119,6 +122,24 @@ func (r *Renderer) renderEnvVars() []corev1.EnvVar {
 	sortEnvVars(envVars)
 
 	return envVars
+}
+
+func (r *Renderer) renderEnvFrom() []corev1.EnvFromSource {
+	var envFrom []corev1.EnvFromSource
+
+	// Add secret reference if configured
+	if r.config.Spec.Secrets != nil && r.config.Spec.Secrets.FromEnvFile != "" {
+		secretName := r.config.Metadata.Name + "-secrets"
+		envFrom = append(envFrom, corev1.EnvFromSource{
+			SecretRef: &corev1.SecretEnvSource{
+				LocalObjectReference: corev1.LocalObjectReference{
+					Name: secretName,
+				},
+			},
+		})
+	}
+
+	return envFrom
 }
 
 func (r *Renderer) renderResources() corev1.ResourceRequirements {
