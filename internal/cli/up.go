@@ -10,12 +10,14 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/spf13/cobra"
+
 	"github.com/bobbyrathoree/kbox/internal/apply"
 	"github.com/bobbyrathoree/kbox/internal/config"
 	"github.com/bobbyrathoree/kbox/internal/debug"
 	"github.com/bobbyrathoree/kbox/internal/k8s"
+	"github.com/bobbyrathoree/kbox/internal/release"
 	"github.com/bobbyrathoree/kbox/internal/render"
-	"github.com/spf13/cobra"
 )
 
 var upCmd = &cobra.Command{
@@ -141,8 +143,18 @@ func runUp(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Save release to history
+	store := release.NewStore(client.Clientset, targetNS, appName)
+	revision, err := store.Save(cmd.Context(), cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to save release history: %v\n", err)
+	}
+
 	fmt.Println()
 	fmt.Printf("✓ %s is running!\n", appName)
+	if revision > 0 {
+		fmt.Printf("Release %s saved (rollback available)\n", release.FormatRevision(revision))
+	}
 
 	// Stream logs unless disabled
 	if !noLogs {
