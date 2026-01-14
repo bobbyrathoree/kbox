@@ -1,0 +1,223 @@
+package apply
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"time"
+
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
+
+	"github.com/bobbyrathoree/kbox/internal/render"
+)
+
+const (
+	// FieldManager is the field manager name for SSA
+	FieldManager = "kbox"
+
+	// DefaultTimeout for operations
+	DefaultTimeout = 5 * time.Minute
+)
+
+// Engine handles applying Kubernetes resources
+type Engine struct {
+	client  *kubernetes.Clientset
+	out     io.Writer
+	timeout time.Duration
+}
+
+// NewEngine creates a new apply engine
+func NewEngine(client *kubernetes.Clientset, out io.Writer) *Engine {
+	return &Engine{
+		client:  client,
+		out:     out,
+		timeout: DefaultTimeout,
+	}
+}
+
+// ApplyResult contains the result of an apply operation
+type ApplyResult struct {
+	Created []string
+	Updated []string
+	Errors  []error
+}
+
+// Apply applies a bundle to the cluster using Server-Side Apply
+func (e *Engine) Apply(ctx context.Context, bundle *render.Bundle) (*ApplyResult, error) {
+	result := &ApplyResult{}
+
+	// Stage 1: ConfigMaps and Secrets (config first)
+	for _, cm := range bundle.ConfigMaps {
+		created, err := e.applyConfigMap(ctx, cm)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Errorf("configmap %s: %w", cm.Name, err))
+			continue
+		}
+		if created {
+			result.Created = append(result.Created, fmt.Sprintf("ConfigMap/%s", cm.Name))
+		} else {
+			result.Updated = append(result.Updated, fmt.Sprintf("ConfigMap/%s", cm.Name))
+		}
+		fmt.Fprintf(e.out, "  ✓ ConfigMap/%s\n", cm.Name)
+	}
+
+	for _, secret := range bundle.Secrets {
+		created, err := e.applySecret(ctx, secret)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Errorf("secret %s: %w", secret.Name, err))
+			continue
+		}
+		if created {
+			result.Created = append(result.Created, fmt.Sprintf("Secret/%s", secret.Name))
+		} else {
+			result.Updated = append(result.Updated, fmt.Sprintf("Secret/%s", secret.Name))
+		}
+		fmt.Fprintf(e.out, "  ✓ Secret/%s\n", secret.Name)
+	}
+
+	// Stage 2: Services
+	for _, svc := range bundle.Services {
+		created, err := e.applyService(ctx, svc)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Errorf("service %s: %w", svc.Name, err))
+			continue
+		}
+		if created {
+			result.Created = append(result.Created, fmt.Sprintf("Service/%s", svc.Name))
+		} else {
+			result.Updated = append(result.Updated, fmt.Sprintf("Service/%s", svc.Name))
+		}
+		fmt.Fprintf(e.out, "  ✓ Service/%s\n", svc.Name)
+	}
+
+	// Stage 3: Deployment
+	if bundle.Deployment != nil {
+		created, err := e.applyDeployment(ctx, bundle.Deployment)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Errorf("deployment %s: %w", bundle.Deployment.Name, err))
+		} else {
+			if created {
+				result.Created = append(result.Created, fmt.Sprintf("Deployment/%s", bundle.Deployment.Name))
+			} else {
+				result.Updated = append(result.Updated, fmt.Sprintf("Deployment/%s", bundle.Deployment.Name))
+			}
+			fmt.Fprintf(e.out, "  ✓ Deployment/%s\n", bundle.Deployment.Name)
+		}
+	}
+
+	return result, nil
+}
+
+// WaitForRollout waits for a deployment to complete its rollout
+func (e *Engine) WaitForRollout(ctx context.Context, namespace, name string) error {
+	fmt.Fprintf(e.out, "  ⠋ Waiting for rollout...")
+
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	timeout := time.After(e.timeout)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timeout:
+			return fmt.Errorf("timeout waiting for rollout")
+		case <-ticker.C:
+			dep, err := e.client.AppsV1().Deployments(namespace).Get(ctx, name, metav1.GetOptions{})
+			if err != nil {
+				continue
+			}
+
+			// Check rollout status
+			if dep.Status.ObservedGeneration >= dep.Generation {
+				if dep.Status.UpdatedReplicas == *dep.Spec.Replicas &&
+					dep.Status.ReadyReplicas == *dep.Spec.Replicas &&
+					dep.Status.AvailableReplicas == *dep.Spec.Replicas {
+					fmt.Fprintf(e.out, "\r  ✓ Rollout complete (%d/%d pods ready)\n",
+						dep.Status.ReadyReplicas, *dep.Spec.Replicas)
+					return nil
+				}
+			}
+
+			// Update progress
+			fmt.Fprintf(e.out, "\r  ⠋ Waiting for rollout... (%d/%d pods ready)",
+				dep.Status.ReadyReplicas, *dep.Spec.Replicas)
+		}
+	}
+}
+
+func (e *Engine) applyConfigMap(ctx context.Context, cm *corev1.ConfigMap) (bool, error) {
+	return e.applyObject(ctx, cm, "configmaps", cm.Namespace, cm.Name)
+}
+
+func (e *Engine) applySecret(ctx context.Context, secret *corev1.Secret) (bool, error) {
+	return e.applyObject(ctx, secret, "secrets", secret.Namespace, secret.Name)
+}
+
+func (e *Engine) applyService(ctx context.Context, svc *corev1.Service) (bool, error) {
+	return e.applyObject(ctx, svc, "services", svc.Namespace, svc.Name)
+}
+
+func (e *Engine) applyDeployment(ctx context.Context, dep *appsv1.Deployment) (bool, error) {
+	return e.applyObject(ctx, dep, "deployments", dep.Namespace, dep.Name)
+}
+
+func (e *Engine) applyObject(ctx context.Context, obj runtime.Object, resource, namespace, name string) (bool, error) {
+	// Convert object to JSON for SSA patch
+	data, err := json.Marshal(obj)
+	if err != nil {
+		return false, fmt.Errorf("failed to marshal object: %w", err)
+	}
+
+	// Check if object exists
+	var exists bool
+	switch resource {
+	case "configmaps":
+		_, err = e.client.CoreV1().ConfigMaps(namespace).Get(ctx, name, metav1.GetOptions{})
+		exists = err == nil
+	case "secrets":
+		_, err = e.client.CoreV1().Secrets(namespace).Get(ctx, name, metav1.GetOptions{})
+		exists = err == nil
+	case "services":
+		_, err = e.client.CoreV1().Services(namespace).Get(ctx, name, metav1.GetOptions{})
+		exists = err == nil
+	case "deployments":
+		_, err = e.client.AppsV1().Deployments(namespace).Get(ctx, name, metav1.GetOptions{})
+		exists = err == nil
+	}
+
+	// Apply using SSA
+	patchOpts := metav1.PatchOptions{
+		FieldManager: FieldManager,
+	}
+
+	switch resource {
+	case "configmaps":
+		_, err = e.client.CoreV1().ConfigMaps(namespace).Patch(ctx, name, types.ApplyPatchType, data, patchOpts)
+	case "secrets":
+		_, err = e.client.CoreV1().Secrets(namespace).Patch(ctx, name, types.ApplyPatchType, data, patchOpts)
+	case "services":
+		_, err = e.client.CoreV1().Services(namespace).Patch(ctx, name, types.ApplyPatchType, data, patchOpts)
+	case "deployments":
+		_, err = e.client.AppsV1().Deployments(namespace).Patch(ctx, name, types.ApplyPatchType, data, patchOpts)
+	default:
+		return false, fmt.Errorf("unknown resource type: %s", resource)
+	}
+
+	if err != nil {
+		if errors.IsNotFound(err) {
+			return false, fmt.Errorf("namespace %s does not exist", namespace)
+		}
+		return false, err
+	}
+
+	return !exists, nil
+}
