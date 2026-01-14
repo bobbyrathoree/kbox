@@ -1,0 +1,61 @@
+# Binaries (at root only)
+/kbox
+/kbox-*
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binaries
+*.test
+
+# Output of go coverage
+*.out
+coverage.html
+coverage.txt
+
+# Go workspace
+go.work
+go.work.sum
+
+# Dependency directories
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+ehthumbs.db
+
+# Build artifacts
+dist/
+bin/
+build/
+
+# Temporary files
+tmp/
+*.tmp
+*.log
+
+# Secrets (never commit)
+.env
+.env.*
+!.env.example
+secrets/
+*.enc.yaml
+!*.enc.yaml.example
+
+# Debug
+__debug_bin*

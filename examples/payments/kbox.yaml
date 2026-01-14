@@ -1,0 +1,60 @@
+# Example kbox.yaml for a payments microservice
+apiVersion: kbox.dev/v1
+kind: App
+metadata:
+  name: payments
+  labels:
+    team: platform
+
+spec:
+  # Build from local Dockerfile
+  build:
+    context: .
+    dockerfile: Dockerfile
+
+  # App configuration
+  port: 3000
+  replicas: 2
+
+  # Environment variables
+  env:
+    LOG_LEVEL: info
+    DB_HOST: postgres.default.svc
+
+  # Health check endpoint
+  healthCheck: /health
+
+  # Resource requests (limits default to 2x requests)
+  resources:
+    memory: 256Mi
+    cpu: 100m
+
+  # Service configuration (defaults to ClusterIP)
+  service:
+    type: ClusterIP
+
+# Environment-specific overrides
+environments:
+  dev:
+    replicas: 1
+    env:
+      LOG_LEVEL: debug
+      DB_HOST: localhost
+
+  staging:
+    replicas: 2
+    env:
+      LOG_LEVEL: info
+
+  prod:
+    replicas: 5
+    env:
+      LOG_LEVEL: warn
+    resources:
+      memory: 512Mi
+      cpu: 250m
+    ingress:
+      enabled: true
+      host: payments.example.com
+      tls:
+        enabled: true
