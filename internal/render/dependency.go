@@ -167,7 +167,7 @@ func (r *Renderer) RenderDependency(dep config.DependencyConfig) (*DependencyRes
 					Labels: labels,
 				},
 				Spec: corev1.PodSpec{
-					SecurityContext: defaultPodSecurityContext(),
+					SecurityContext: dependencyPodSecurityContext(dep.Type),
 					Containers:      []corev1.Container{depContainer},
 				},
 			},
@@ -308,6 +308,53 @@ func dependencySecurityContext(depType string) *corev1.SecurityContext {
 		Capabilities: &corev1.Capabilities{
 			Drop: []corev1.Capability{"ALL"},
 		},
+	}
+}
+
+// dependencyPodSecurityContext returns pod-level security context for dependencies
+// Different databases require different UIDs to run correctly
+func dependencyPodSecurityContext(depType string) *corev1.PodSecurityContext {
+	runAsNonRoot := true
+
+	switch depType {
+	case "postgres":
+		// Postgres runs as uid 70 (postgres user in alpine image)
+		uid := int64(70)
+		return &corev1.PodSecurityContext{
+			RunAsNonRoot: &runAsNonRoot,
+			RunAsUser:    &uid,
+			RunAsGroup:   &uid,
+			FSGroup:      &uid,
+		}
+	case "mysql":
+		// MySQL runs as uid 999 (mysql user)
+		uid := int64(999)
+		return &corev1.PodSecurityContext{
+			RunAsNonRoot: &runAsNonRoot,
+			RunAsUser:    &uid,
+			RunAsGroup:   &uid,
+			FSGroup:      &uid,
+		}
+	case "mongodb":
+		// MongoDB runs as uid 999 (mongodb user)
+		uid := int64(999)
+		return &corev1.PodSecurityContext{
+			RunAsNonRoot: &runAsNonRoot,
+			RunAsUser:    &uid,
+			RunAsGroup:   &uid,
+			FSGroup:      &uid,
+		}
+	case "redis":
+		// Redis can run as uid 999 (redis user)
+		uid := int64(999)
+		return &corev1.PodSecurityContext{
+			RunAsNonRoot: &runAsNonRoot,
+			RunAsUser:    &uid,
+			RunAsGroup:   &uid,
+			FSGroup:      &uid,
+		}
+	default:
+		return defaultPodSecurityContext()
 	}
 }
 

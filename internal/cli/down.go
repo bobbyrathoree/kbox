@@ -105,6 +105,9 @@ func runDown(cmd *cobra.Command, args []string) error {
 	deleteOpts := metav1.DeleteOptions{}
 	listOpts := metav1.ListOptions{LabelSelector: selector}
 
+	// Only print deletion messages if NOT in JSON mode
+	shouldPrint := outputFormat != "json"
+
 	var deleted []string
 	var errors []error
 
@@ -116,7 +119,9 @@ func runDown(cmd *cobra.Command, args []string) error {
 		for _, dep := range deps.Items {
 			if err := client.Clientset.AppsV1().Deployments(targetNS).Delete(ctx, dep.Name, deleteOpts); err == nil {
 				deleted = append(deleted, fmt.Sprintf("Deployment/%s", dep.Name))
-				fmt.Printf("  ✓ Deleted Deployment/%s\n", dep.Name)
+				if shouldPrint {
+					fmt.Printf("  ✓ Deleted Deployment/%s\n", dep.Name)
+				}
 			} else {
 				errors = append(errors, fmt.Errorf("Deployment/%s: %w", dep.Name, err))
 			}
@@ -129,7 +134,9 @@ func runDown(cmd *cobra.Command, args []string) error {
 		for _, job := range jobs.Items {
 			if err := client.Clientset.BatchV1().Jobs(targetNS).Delete(ctx, job.Name, deleteOpts); err == nil {
 				deleted = append(deleted, fmt.Sprintf("Job/%s", job.Name))
-				fmt.Printf("  ✓ Deleted Job/%s\n", job.Name)
+				if shouldPrint {
+					fmt.Printf("  ✓ Deleted Job/%s\n", job.Name)
+				}
 			} else {
 				errors = append(errors, fmt.Errorf("Job/%s: %w", job.Name, err))
 			}
@@ -142,7 +149,9 @@ func runDown(cmd *cobra.Command, args []string) error {
 		for _, cj := range cronjobs.Items {
 			if err := client.Clientset.BatchV1().CronJobs(targetNS).Delete(ctx, cj.Name, deleteOpts); err == nil {
 				deleted = append(deleted, fmt.Sprintf("CronJob/%s", cj.Name))
-				fmt.Printf("  ✓ Deleted CronJob/%s\n", cj.Name)
+				if shouldPrint {
+					fmt.Printf("  ✓ Deleted CronJob/%s\n", cj.Name)
+				}
 			} else {
 				errors = append(errors, fmt.Errorf("CronJob/%s: %w", cj.Name, err))
 			}
@@ -155,7 +164,9 @@ func runDown(cmd *cobra.Command, args []string) error {
 		for _, ss := range statefulsets.Items {
 			if err := client.Clientset.AppsV1().StatefulSets(targetNS).Delete(ctx, ss.Name, deleteOpts); err == nil {
 				deleted = append(deleted, fmt.Sprintf("StatefulSet/%s", ss.Name))
-				fmt.Printf("  ✓ Deleted StatefulSet/%s\n", ss.Name)
+				if shouldPrint {
+					fmt.Printf("  ✓ Deleted StatefulSet/%s\n", ss.Name)
+				}
 			} else {
 				errors = append(errors, fmt.Errorf("StatefulSet/%s: %w", ss.Name, err))
 			}
@@ -168,7 +179,9 @@ func runDown(cmd *cobra.Command, args []string) error {
 		for _, svc := range services.Items {
 			if err := client.Clientset.CoreV1().Services(targetNS).Delete(ctx, svc.Name, deleteOpts); err == nil {
 				deleted = append(deleted, fmt.Sprintf("Service/%s", svc.Name))
-				fmt.Printf("  ✓ Deleted Service/%s\n", svc.Name)
+				if shouldPrint {
+					fmt.Printf("  ✓ Deleted Service/%s\n", svc.Name)
+				}
 			} else {
 				errors = append(errors, fmt.Errorf("Service/%s: %w", svc.Name, err))
 			}
@@ -181,7 +194,9 @@ func runDown(cmd *cobra.Command, args []string) error {
 		for _, ing := range ingresses.Items {
 			if err := client.Clientset.NetworkingV1().Ingresses(targetNS).Delete(ctx, ing.Name, deleteOpts); err == nil {
 				deleted = append(deleted, fmt.Sprintf("Ingress/%s", ing.Name))
-				fmt.Printf("  ✓ Deleted Ingress/%s\n", ing.Name)
+				if shouldPrint {
+					fmt.Printf("  ✓ Deleted Ingress/%s\n", ing.Name)
+				}
 			} else {
 				errors = append(errors, fmt.Errorf("Ingress/%s: %w", ing.Name, err))
 			}
@@ -194,7 +209,9 @@ func runDown(cmd *cobra.Command, args []string) error {
 		for _, cm := range configmaps.Items {
 			if err := client.Clientset.CoreV1().ConfigMaps(targetNS).Delete(ctx, cm.Name, deleteOpts); err == nil {
 				deleted = append(deleted, fmt.Sprintf("ConfigMap/%s", cm.Name))
-				fmt.Printf("  ✓ Deleted ConfigMap/%s\n", cm.Name)
+				if shouldPrint {
+					fmt.Printf("  ✓ Deleted ConfigMap/%s\n", cm.Name)
+				}
 			} else {
 				errors = append(errors, fmt.Errorf("ConfigMap/%s: %w", cm.Name, err))
 			}
@@ -207,7 +224,9 @@ func runDown(cmd *cobra.Command, args []string) error {
 		for _, secret := range secrets.Items {
 			if err := client.Clientset.CoreV1().Secrets(targetNS).Delete(ctx, secret.Name, deleteOpts); err == nil {
 				deleted = append(deleted, fmt.Sprintf("Secret/%s", secret.Name))
-				fmt.Printf("  ✓ Deleted Secret/%s\n", secret.Name)
+				if shouldPrint {
+					fmt.Printf("  ✓ Deleted Secret/%s\n", secret.Name)
+				}
 			} else {
 				errors = append(errors, fmt.Errorf("Secret/%s: %w", secret.Name, err))
 			}
@@ -221,7 +240,9 @@ func runDown(cmd *cobra.Command, args []string) error {
 			for _, pvc := range pvcs.Items {
 				if err := client.Clientset.CoreV1().PersistentVolumeClaims(targetNS).Delete(ctx, pvc.Name, deleteOpts); err == nil {
 					deleted = append(deleted, fmt.Sprintf("PersistentVolumeClaim/%s", pvc.Name))
-					fmt.Printf("  ✓ Deleted PersistentVolumeClaim/%s\n", pvc.Name)
+					if shouldPrint {
+						fmt.Printf("  ✓ Deleted PersistentVolumeClaim/%s\n", pvc.Name)
+					}
 				} else {
 					errors = append(errors, fmt.Errorf("PersistentVolumeClaim/%s: %w", pvc.Name, err))
 				}
@@ -233,7 +254,9 @@ func runDown(cmd *cobra.Command, args []string) error {
 	releaseHistoryCM := fmt.Sprintf("%s-release-history", appName)
 	if err := client.Clientset.CoreV1().ConfigMaps(targetNS).Delete(ctx, releaseHistoryCM, deleteOpts); err == nil {
 		deleted = append(deleted, fmt.Sprintf("ConfigMap/%s", releaseHistoryCM))
-		fmt.Printf("  ✓ Deleted ConfigMap/%s\n", releaseHistoryCM)
+		if shouldPrint {
+			fmt.Printf("  ✓ Deleted ConfigMap/%s\n", releaseHistoryCM)
+		}
 	}
 
 	// Phase 2: Clean up dependency resources (postgres/redis StatefulSets, Services, Secrets)
@@ -258,7 +281,9 @@ func runDown(cmd *cobra.Command, args []string) error {
 			if err := client.Clientset.AppsV1().StatefulSets(targetNS).Delete(ctx, ss.Name, deleteOpts); err == nil {
 				deleted = append(deleted, resourceKey)
 				deletedSet[resourceKey] = true
-				fmt.Printf("  ✓ Deleted StatefulSet/%s\n", ss.Name)
+				if shouldPrint {
+					fmt.Printf("  ✓ Deleted StatefulSet/%s\n", ss.Name)
+				}
 			} else {
 				errors = append(errors, fmt.Errorf("StatefulSet/%s: %w", ss.Name, err))
 			}
@@ -276,7 +301,9 @@ func runDown(cmd *cobra.Command, args []string) error {
 			if err := client.Clientset.CoreV1().Services(targetNS).Delete(ctx, svc.Name, deleteOpts); err == nil {
 				deleted = append(deleted, resourceKey)
 				deletedSet[resourceKey] = true
-				fmt.Printf("  ✓ Deleted Service/%s\n", svc.Name)
+				if shouldPrint {
+					fmt.Printf("  ✓ Deleted Service/%s\n", svc.Name)
+				}
 			} else {
 				errors = append(errors, fmt.Errorf("Service/%s: %w", svc.Name, err))
 			}
@@ -294,9 +321,74 @@ func runDown(cmd *cobra.Command, args []string) error {
 			if err := client.Clientset.CoreV1().Secrets(targetNS).Delete(ctx, secret.Name, deleteOpts); err == nil {
 				deleted = append(deleted, resourceKey)
 				deletedSet[resourceKey] = true
-				fmt.Printf("  ✓ Deleted Secret/%s\n", secret.Name)
+				if shouldPrint {
+					fmt.Printf("  ✓ Deleted Secret/%s\n", secret.Name)
+				}
 			} else {
 				errors = append(errors, fmt.Errorf("Secret/%s: %w", secret.Name, err))
+			}
+		}
+	}
+
+	// 10. Delete ServiceAccounts (skip default)
+	serviceAccounts, err := client.Clientset.CoreV1().ServiceAccounts(targetNS).List(ctx, listOpts)
+	if err == nil {
+		for _, sa := range serviceAccounts.Items {
+			if sa.Name == "default" {
+				continue // Don't delete default SA
+			}
+			if err := client.Clientset.CoreV1().ServiceAccounts(targetNS).Delete(ctx, sa.Name, deleteOpts); err == nil {
+				deleted = append(deleted, fmt.Sprintf("ServiceAccount/%s", sa.Name))
+				if shouldPrint {
+					fmt.Printf("  ✓ Deleted ServiceAccount/%s\n", sa.Name)
+				}
+			} else {
+				errors = append(errors, fmt.Errorf("ServiceAccount/%s: %w", sa.Name, err))
+			}
+		}
+	}
+
+	// 11. Delete NetworkPolicies
+	networkPolicies, err := client.Clientset.NetworkingV1().NetworkPolicies(targetNS).List(ctx, listOpts)
+	if err == nil {
+		for _, np := range networkPolicies.Items {
+			if err := client.Clientset.NetworkingV1().NetworkPolicies(targetNS).Delete(ctx, np.Name, deleteOpts); err == nil {
+				deleted = append(deleted, fmt.Sprintf("NetworkPolicy/%s", np.Name))
+				if shouldPrint {
+					fmt.Printf("  ✓ Deleted NetworkPolicy/%s\n", np.Name)
+				}
+			} else {
+				errors = append(errors, fmt.Errorf("NetworkPolicy/%s: %w", np.Name, err))
+			}
+		}
+	}
+
+	// 12. Delete HPAs
+	hpas, err := client.Clientset.AutoscalingV2().HorizontalPodAutoscalers(targetNS).List(ctx, listOpts)
+	if err == nil {
+		for _, hpa := range hpas.Items {
+			if err := client.Clientset.AutoscalingV2().HorizontalPodAutoscalers(targetNS).Delete(ctx, hpa.Name, deleteOpts); err == nil {
+				deleted = append(deleted, fmt.Sprintf("HorizontalPodAutoscaler/%s", hpa.Name))
+				if shouldPrint {
+					fmt.Printf("  ✓ Deleted HorizontalPodAutoscaler/%s\n", hpa.Name)
+				}
+			} else {
+				errors = append(errors, fmt.Errorf("HorizontalPodAutoscaler/%s: %w", hpa.Name, err))
+			}
+		}
+	}
+
+	// 13. Delete PDBs
+	pdbs, err := client.Clientset.PolicyV1().PodDisruptionBudgets(targetNS).List(ctx, listOpts)
+	if err == nil {
+		for _, pdb := range pdbs.Items {
+			if err := client.Clientset.PolicyV1().PodDisruptionBudgets(targetNS).Delete(ctx, pdb.Name, deleteOpts); err == nil {
+				deleted = append(deleted, fmt.Sprintf("PodDisruptionBudget/%s", pdb.Name))
+				if shouldPrint {
+					fmt.Printf("  ✓ Deleted PodDisruptionBudget/%s\n", pdb.Name)
+				}
+			} else {
+				errors = append(errors, fmt.Errorf("PodDisruptionBudget/%s: %w", pdb.Name, err))
 			}
 		}
 	}

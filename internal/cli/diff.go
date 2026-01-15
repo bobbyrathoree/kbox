@@ -84,13 +84,8 @@ Use this before 'kbox deploy' to verify what will happen.`,
 				return fmt.Errorf("failed to render: %w", err)
 			}
 
-			// Print header
-			if environment != "" {
-				fmt.Printf("Changes for environment: %s\n", environment)
-			} else {
-				fmt.Printf("Changes for %s (namespace: %s)\n", cfg.Metadata.Name, namespace)
-			}
-			fmt.Println()
+			// Check output format early - don't print text if JSON mode
+			outputFormat := GetOutputFormat(cmd)
 
 			// Check each resource
 			changes := []changeInfo{}
@@ -221,8 +216,7 @@ Use this before 'kbox deploy' to verify what will happen.`,
 				}
 			}
 
-			// JSON output
-			outputFormat := GetOutputFormat(cmd)
+			// JSON output - return pure JSON without any text
 			if outputFormat == "json" {
 				return json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
 					"success":    true,
@@ -230,6 +224,14 @@ Use this before 'kbox deploy' to verify what will happen.`,
 					"changes":    changes,
 				})
 			}
+
+			// Text output - print header first
+			if environment != "" {
+				fmt.Printf("Changes for environment: %s\n", environment)
+			} else {
+				fmt.Printf("Changes for %s (namespace: %s)\n", cfg.Metadata.Name, namespace)
+			}
+			fmt.Println()
 
 			// Print changes
 			for _, c := range changes {
