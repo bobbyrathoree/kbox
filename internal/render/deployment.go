@@ -13,7 +13,7 @@ import (
 // Security context helpers for hardened pod defaults
 
 // defaultPodSecurityContext returns a secure pod-level security context
-// that runs as non-root with specific UID/GID
+// that runs as non-root with specific UID/GID and seccomp profile
 func defaultPodSecurityContext() *corev1.PodSecurityContext {
 	runAsUser := int64(1000)
 	runAsGroup := int64(1000)
@@ -25,6 +25,9 @@ func defaultPodSecurityContext() *corev1.PodSecurityContext {
 		RunAsUser:    &runAsUser,
 		RunAsGroup:   &runAsGroup,
 		FSGroup:      &fsGroup,
+		SeccompProfile: &corev1.SeccompProfile{
+			Type: corev1.SeccompProfileTypeRuntimeDefault,
+		},
 	}
 }
 
