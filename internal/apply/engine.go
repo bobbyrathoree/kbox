@@ -9,6 +9,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -112,6 +113,21 @@ func (e *Engine) Apply(ctx context.Context, bundle *render.Bundle) (*ApplyResult
 		}
 	}
 
+	// Stage 4: Ingresses
+	for _, ing := range bundle.Ingresses {
+		created, err := e.applyIngress(ctx, ing)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Errorf("ingress %s: %w", ing.Name, err))
+			continue
+		}
+		if created {
+			result.Created = append(result.Created, fmt.Sprintf("Ingress/%s", ing.Name))
+		} else {
+			result.Updated = append(result.Updated, fmt.Sprintf("Ingress/%s", ing.Name))
+		}
+		fmt.Fprintf(e.out, "  ✓ Ingress/%s\n", ing.Name)
+	}
+
 	return result, nil
 }
 
@@ -134,6 +150,27 @@ func (e *Engine) WaitForRollout(ctx context.Context, namespace, name string) err
 			dep, err := e.client.AppsV1().Deployments(namespace).Get(ctx, name, metav1.GetOptions{})
 			if err != nil {
 				continue
+			}
+
+			// Check for pod failures (crashloops, image pull errors)
+			pods, err := e.client.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
+				LabelSelector: fmt.Sprintf("app=%s", name),
+			})
+			if err == nil {
+				for _, pod := range pods.Items {
+					for _, cs := range pod.Status.ContainerStatuses {
+						if cs.State.Waiting != nil {
+							reason := cs.State.Waiting.Reason
+							if reason == "CrashLoopBackOff" ||
+								reason == "ImagePullBackOff" ||
+								reason == "ErrImagePull" {
+								fmt.Fprintf(e.out, "\r")
+								return fmt.Errorf("pod %s: %s\n  → Run 'kbox logs' to diagnose\n  → Run 'kbox status' to see events",
+									pod.Name, reason)
+							}
+						}
+					}
+				}
 			}
 
 			// Check rollout status
@@ -170,6 +207,10 @@ func (e *Engine) applyDeployment(ctx context.Context, dep *appsv1.Deployment) (b
 	return e.applyObject(ctx, dep, "deployments", dep.Namespace, dep.Name)
 }
 
+func (e *Engine) applyIngress(ctx context.Context, ing *networkingv1.Ingress) (bool, error) {
+	return e.applyObject(ctx, ing, "ingresses", ing.Namespace, ing.Name)
+}
+
 func (e *Engine) applyObject(ctx context.Context, obj runtime.Object, resource, namespace, name string) (bool, error) {
 	// Convert object to JSON for SSA patch
 	data, err := json.Marshal(obj)
@@ -192,6 +233,9 @@ func (e *Engine) applyObject(ctx context.Context, obj runtime.Object, resource, 
 	case "deployments":
 		_, err = e.client.AppsV1().Deployments(namespace).Get(ctx, name, metav1.GetOptions{})
 		exists = err == nil
+	case "ingresses":
+		_, err = e.client.NetworkingV1().Ingresses(namespace).Get(ctx, name, metav1.GetOptions{})
+		exists = err == nil
 	}
 
 	// Apply using SSA
@@ -208,6 +252,8 @@ func (e *Engine) applyObject(ctx context.Context, obj runtime.Object, resource, 
 		_, err = e.client.CoreV1().Services(namespace).Patch(ctx, name, types.ApplyPatchType, data, patchOpts)
 	case "deployments":
 		_, err = e.client.AppsV1().Deployments(namespace).Patch(ctx, name, types.ApplyPatchType, data, patchOpts)
+	case "ingresses":
+		_, err = e.client.NetworkingV1().Ingresses(namespace).Patch(ctx, name, types.ApplyPatchType, data, patchOpts)
 	default:
 		return false, fmt.Errorf("unknown resource type: %s", resource)
 	}

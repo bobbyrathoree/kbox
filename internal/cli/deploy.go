@@ -91,6 +91,11 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 		appName = multiCfg.Metadata.Name
 		result.App = appName
 
+		// Apply environment overlay
+		if env != "" {
+			multiCfg = multiCfg.ForEnvironment(env)
+		}
+
 		// Override namespace if specified
 		if namespace != "" {
 			multiCfg.Metadata.Namespace = namespace
@@ -126,7 +131,10 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 
 		// Check if we have an image
 		if cfg.Spec.Image == "" && cfg.Spec.Build == nil {
-			return finalize(fmt.Errorf("no image specified and no build configuration - use 'kbox up' for build+deploy"))
+			return finalize(fmt.Errorf("no image specified in kbox.yaml\n\n" +
+				"Choose one:\n" +
+				"  kbox up      → Build from Dockerfile + deploy (for development)\n" +
+				"  kbox deploy  → Deploy pre-built image (add 'image:' to kbox.yaml)"))
 		}
 
 		// If only build config, use a placeholder image

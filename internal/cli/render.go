@@ -64,6 +64,14 @@ func runRender(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("failed to load kbox.yaml: %w", err)
 		}
 
+		// Apply environment overlay
+		if env != "" {
+			multiCfg = multiCfg.ForEnvironment(env)
+			if !ciMode {
+				fmt.Fprintf(os.Stderr, "Using environment: %s\n", env)
+			}
+		}
+
 		// Render using multi-service renderer
 		renderer := render.NewMultiService(multiCfg)
 		bundle, err = renderer.Render()

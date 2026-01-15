@@ -1,8 +1,11 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/bobbyrathoree/kbox/internal/debug"
 	"github.com/bobbyrathoree/kbox/internal/k8s"
@@ -36,6 +39,17 @@ func runShell(cmd *cobra.Command, args []string) error {
 	kubeContext, _ := cmd.Flags().GetString("context")
 	container, _ := cmd.Flags().GetString("container")
 
+	// Set up signal handling for graceful cancellation
+	ctx, cancel := context.WithCancel(cmd.Context())
+	defer cancel()
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sigCh
+		cancel()
+	}()
+
 	// Create K8s client
 	client, err := k8s.NewClient(k8s.ClientOptions{
 		Context:   kubeContext,
@@ -51,7 +65,7 @@ func runShell(cmd *cobra.Command, args []string) error {
 	}
 
 	// Find pods for the app
-	pods, err := debug.FindPods(cmd.Context(), client.Clientset, ns, appName)
+	pods, err := debug.FindPods(ctx, client.Clientset, ns, appName)
 	if err != nil {
 		return err
 	}
@@ -88,7 +102,7 @@ func runShell(cmd *cobra.Command, args []string) error {
 		TTY:       isTTY,
 	}
 
-	result, err := debug.Shell(cmd.Context(), client.Clientset, client.RestConfig, ns, targetPod.Name, opts)
+	result, err := debug.Shell(ctx, client.Clientset, client.RestConfig, ns, targetPod.Name, opts)
 	if err != nil {
 		return err
 	}

@@ -22,14 +22,18 @@ var rootCmd = &cobra.Command{
 	Long: `kbox - what kubectl should have been for app developers
 
 A single tool that turns K8s app lifecycle into simple commands:
-  kbox up       Zero-config deploy (just needs a Dockerfile)
-  kbox deploy   Deploy with full control via kbox.yaml
+  kbox up       Build + deploy + stream logs (for development)
+  kbox deploy   Deploy pre-built images (for CI/CD pipelines)
   kbox logs     Logs with K8s events interleaved
   kbox shell    Shell into any container (even distroless)
   kbox rollback Fast escape hatch
 
+Which command should I use?
+  kbox up       → Use during development. Builds from Dockerfile, deploys, streams logs.
+  kbox deploy   → Use in CI/CD. Requires pre-built image in kbox.yaml or registry.
+
 Get started:
-  kbox up              # Deploy current directory (zero config)
+  kbox up              # Build + deploy current directory (just needs Dockerfile)
   kbox init            # Create kbox.yaml for more control
   kbox doctor          # Check your setup`,
 	SilenceUsage:  true,

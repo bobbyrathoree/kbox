@@ -5,6 +5,7 @@ import (
 	"github.com/bobbyrathoree/kbox/internal/secrets"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
@@ -17,12 +18,13 @@ type Bundle struct {
 	Services     []*corev1.Service
 	StatefulSets []*appsv1.StatefulSet
 	Deployments  []*appsv1.Deployment
+	Ingresses    []*networkingv1.Ingress
 	// Deployment is kept for backward compatibility (points to first deployment)
 	Deployment *appsv1.Deployment
 }
 
 // AllObjects returns all objects in the bundle in apply order
-// Order: Namespace, ConfigMaps, Secrets, Services, StatefulSets, Deployments
+// Order: Namespace, ConfigMaps, Secrets, Services, StatefulSets, Deployments, Ingresses
 func (b *Bundle) AllObjects() []runtime.Object {
 	var objects []runtime.Object
 
@@ -49,6 +51,10 @@ func (b *Bundle) AllObjects() []runtime.Object {
 		}
 	} else if b.Deployment != nil {
 		objects = append(objects, b.Deployment)
+	}
+	// Ingresses last (depends on Services)
+	for _, ing := range b.Ingresses {
+		objects = append(objects, ing)
 	}
 
 	return objects
@@ -134,6 +140,15 @@ func (r *Renderer) Render() (*Bundle, error) {
 			return nil, err
 		}
 		bundle.Secrets = append(bundle.Secrets, secret)
+	}
+
+	// Render Ingress if configured
+	if r.config.Spec.Ingress != nil && r.config.Spec.Ingress.Enabled {
+		ingress, err := r.RenderIngress()
+		if err != nil {
+			return nil, err
+		}
+		bundle.Ingresses = append(bundle.Ingresses, ingress)
 	}
 
 	return bundle, nil

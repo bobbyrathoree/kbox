@@ -208,6 +208,60 @@ func checkCircularDeps(services map[string]ServiceSpec) error {
 	return nil
 }
 
+// ForEnvironment returns a config merged with environment-specific overrides
+func (c *MultiServiceConfig) ForEnvironment(env string) *MultiServiceConfig {
+	if env == "" || c.Environments == nil {
+		return c
+	}
+
+	override, ok := c.Environments[env]
+	if !ok {
+		return c
+	}
+
+	// Create a deep copy of the config
+	result := *c
+	result.Services = make(map[string]ServiceSpec)
+	for name, svc := range c.Services {
+		result.Services[name] = svc
+	}
+
+	// Apply per-service overrides
+	if override.Services != nil {
+		for name, svcOverride := range override.Services {
+			svc, ok := result.Services[name]
+			if !ok {
+				continue // Skip unknown services
+			}
+
+			// Apply overrides
+			if svcOverride.Replicas != nil {
+				svc.Replicas = *svcOverride.Replicas
+			}
+			if svcOverride.Image != "" {
+				svc.Image = svcOverride.Image
+			}
+			if svcOverride.Resources != nil {
+				svc.Resources = svcOverride.Resources
+			}
+
+			// Merge env vars
+			if len(svcOverride.Env) > 0 {
+				if svc.Env == nil {
+					svc.Env = make(map[string]string)
+				}
+				for k, v := range svcOverride.Env {
+					svc.Env[k] = v
+				}
+			}
+
+			result.Services[name] = svc
+		}
+	}
+
+	return &result
+}
+
 // ToAppConfig converts a single service from MultiServiceConfig to AppConfig
 // This is useful for rendering individual services
 func (c *MultiServiceConfig) ToAppConfig(serviceName string) (*AppConfig, error) {

@@ -186,10 +186,32 @@ type EnvOverride struct {
 
 // MultiServiceConfig represents a multi-service kbox.yaml configuration
 type MultiServiceConfig struct {
-	APIVersion string                 `yaml:"apiVersion" json:"apiVersion"`
-	Kind       string                 `yaml:"kind" json:"kind"` // "MultiApp"
-	Metadata   Metadata               `yaml:"metadata" json:"metadata"`
-	Services   map[string]ServiceSpec `yaml:"services" json:"services"`
+	APIVersion   string                        `yaml:"apiVersion" json:"apiVersion"`
+	Kind         string                        `yaml:"kind" json:"kind"` // "MultiApp"
+	Metadata     Metadata                      `yaml:"metadata" json:"metadata"`
+	Services     map[string]ServiceSpec        `yaml:"services" json:"services"`
+	Environments map[string]MultiEnvOverride   `yaml:"environments,omitempty" json:"environments,omitempty"`
+}
+
+// MultiEnvOverride defines environment-specific overrides for multi-service apps
+type MultiEnvOverride struct {
+	// Services contains per-service overrides
+	Services map[string]ServiceEnvOverride `yaml:"services,omitempty" json:"services,omitempty"`
+}
+
+// ServiceEnvOverride defines environment-specific overrides for a single service
+type ServiceEnvOverride struct {
+	// Replicas override
+	Replicas *int `yaml:"replicas,omitempty" json:"replicas,omitempty"`
+
+	// Env variables to add/override
+	Env map[string]string `yaml:"env,omitempty" json:"env,omitempty"`
+
+	// Resources override
+	Resources *ResourceConfig `yaml:"resources,omitempty" json:"resources,omitempty"`
+
+	// Image override
+	Image string `yaml:"image,omitempty" json:"image,omitempty"`
 }
 
 // ServiceSpec defines a single service in a multi-service app

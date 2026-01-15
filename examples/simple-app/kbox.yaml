@@ -1,0 +1,13 @@
+apiVersion: kbox.dev/v1
+kind: App
+metadata:
+  name: simple-app
+spec:
+  build:
+    context: .
+    dockerfile: Dockerfile
+  dependencies:
+  - type: postgres
+  image: simple-app
+  port: 8080
+  replicas: 1
