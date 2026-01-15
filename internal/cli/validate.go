@@ -22,12 +22,14 @@ This command checks your configuration for:
 
 Examples:
   kbox validate                    # Validate ./kbox.yaml
-  kbox validate -f custom.yaml     # Validate specific file`,
+  kbox validate -f custom.yaml     # Validate specific file
+  kbox validate --strict           # Fail on warnings (for CI)`,
 	RunE: runValidate,
 }
 
 func runValidate(cmd *cobra.Command, args []string) error {
 	configFile, _ := cmd.Flags().GetString("file")
+	strict, _ := cmd.Flags().GetBool("strict")
 	outputFormat := GetOutputFormat(cmd)
 
 	// Load config
@@ -45,12 +47,14 @@ func runValidate(cmd *cobra.Command, args []string) error {
 	// Prepare result for output
 	result := struct {
 		Valid    bool     `json:"valid"`
+		Strict   bool     `json:"strict"`
 		Errors   []string `json:"errors,omitempty"`
 		Warnings []string `json:"warnings,omitempty"`
 		File     string   `json:"file"`
 	}{
-		Valid: err == nil,
-		File:  configFile,
+		Valid:  err == nil,
+		Strict: strict,
+		File:   configFile,
 	}
 
 	if configFile == "" {
@@ -66,13 +70,27 @@ func runValidate(cmd *cobra.Command, args []string) error {
 		result.Warnings = warnings
 	}
 
+	// In strict mode, warnings count as failures
+	if strict && len(result.Warnings) > 0 {
+		result.Valid = false
+	}
+
 	// JSON output
 	if outputFormat == "json" {
-		return json.NewEncoder(os.Stdout).Encode(result)
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(result); err != nil {
+			return err
+		}
+		if !result.Valid {
+			return fmt.Errorf("validation failed")
+		}
+		return nil
 	}
 
 	// Text output
-	if !result.Valid {
+	// Check for actual errors first (not strict mode failures)
+	if len(result.Errors) > 0 {
 		fmt.Printf("Invalid configuration: %s\n", result.File)
 		for _, e := range result.Errors {
 			fmt.Printf("  Error: %s\n", e)
@@ -80,10 +98,14 @@ func runValidate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("validation failed")
 	}
 
+	// Config is syntactically valid
 	fmt.Printf("Valid configuration: %s\n", result.File)
 	if len(result.Warnings) > 0 {
 		for _, w := range result.Warnings {
 			fmt.Printf("  Warning: %s\n", w)
+		}
+		if strict {
+			return fmt.Errorf("validation failed: %d warning(s) in strict mode", len(result.Warnings))
 		}
 	} else {
 		fmt.Println("  No warnings")
@@ -94,5 +116,6 @@ func runValidate(cmd *cobra.Command, args []string) error {
 
 func init() {
 	validateCmd.Flags().StringP("file", "f", "", "Path to kbox.yaml (default: ./kbox.yaml)")
+	validateCmd.Flags().Bool("strict", false, "Treat warnings as errors (for CI pipelines)")
 	rootCmd.AddCommand(validateCmd)
 }

@@ -28,12 +28,13 @@ func runRender(cmd *cobra.Command, args []string) error {
 	env, _ := cmd.Flags().GetString("env")
 	redact, _ := cmd.Flags().GetBool("redact")
 	configFile, _ := cmd.Flags().GetString("file")
+	showSummary, _ := cmd.Flags().GetBool("summary")
 	outputFormat := GetOutputFormat(cmd)
 	ciMode := IsCIMode(cmd)
 
 	// If a specific file is provided, load it directly
 	if configFile != "" {
-		return renderFromFile(cmd, configFile, env, redact, outputFormat, ciMode)
+		return renderFromFile(cmd, configFile, env, redact, showSummary, outputFormat, ciMode)
 	}
 
 	// Use current directory
@@ -140,6 +141,12 @@ func runRender(cmd *cobra.Command, args []string) error {
 		bundle = redactSecrets(bundle)
 	}
 
+	// Show summary if requested
+	if showSummary {
+		printBundleSummary(bundle)
+		return nil
+	}
+
 	// Output based on format
 	if !ciMode && outputFormat != "json" {
 		fmt.Fprintln(os.Stderr) // Blank line before YAML
@@ -152,6 +159,50 @@ func runRender(cmd *cobra.Command, args []string) error {
 
 	// Default YAML output
 	return bundle.ToYAML(os.Stdout)
+}
+
+// printBundleSummary prints a summary of resources in the bundle
+func printBundleSummary(bundle *render.Bundle) {
+	total := len(bundle.AllObjects())
+	fmt.Printf("Resource Summary:\n")
+	fmt.Printf("  Total resources: %d\n\n", total)
+
+	// Core resources
+	if bundle.Deployment != nil {
+		fmt.Printf("  Deployment:      %s\n", bundle.Deployment.Name)
+	}
+	if len(bundle.Services) > 0 {
+		fmt.Printf("  Services:        %d\n", len(bundle.Services))
+		for _, svc := range bundle.Services {
+			fmt.Printf("    - %s\n", svc.Name)
+		}
+	}
+	if len(bundle.Secrets) > 0 {
+		fmt.Printf("  Secrets:         %d\n", len(bundle.Secrets))
+	}
+	if bundle.ServiceAccount != nil {
+		fmt.Printf("  ServiceAccount:  %s\n", bundle.ServiceAccount.Name)
+	}
+	if bundle.HPA != nil {
+		fmt.Printf("  HPA:             %s (min: %d, max: %d)\n",
+			bundle.HPA.Name,
+			*bundle.HPA.Spec.MinReplicas,
+			bundle.HPA.Spec.MaxReplicas)
+	}
+	if bundle.PDB != nil {
+		fmt.Printf("  PDB:             %s\n", bundle.PDB.Name)
+	}
+	if len(bundle.NetworkPolicies) > 0 {
+		fmt.Printf("  NetworkPolicies: %d\n", len(bundle.NetworkPolicies))
+	}
+
+	// Dependencies
+	if len(bundle.StatefulSets) > 0 {
+		fmt.Printf("\n  Dependencies:\n")
+		for _, ss := range bundle.StatefulSets {
+			fmt.Printf("    - %s (StatefulSet)\n", ss.Name)
+		}
+	}
 }
 
 // redactSecrets replaces all secret data with redacted placeholders
@@ -180,7 +231,7 @@ func redactSecrets(bundle *render.Bundle) *render.Bundle {
 }
 
 // renderFromFile loads and renders a specific config file
-func renderFromFile(cmd *cobra.Command, configFile, env string, redact bool, outputFormat string, ciMode bool) error {
+func renderFromFile(cmd *cobra.Command, configFile, env string, redact, showSummary bool, outputFormat string, ciMode bool) error {
 	loader := config.NewLoader(".")
 
 	// Load config directly from file
@@ -221,6 +272,12 @@ func renderFromFile(cmd *cobra.Command, configFile, env string, redact bool, out
 		bundle = redactSecrets(bundle)
 	}
 
+	// Show summary if requested
+	if showSummary {
+		printBundleSummary(bundle)
+		return nil
+	}
+
 	// Output
 	if !ciMode && outputFormat != "json" {
 		fmt.Fprintln(os.Stderr)
@@ -236,5 +293,6 @@ func init() {
 	renderCmd.Flags().StringP("env", "e", "", "Environment overlay to apply (e.g., dev, staging, prod)")
 	renderCmd.Flags().StringP("file", "f", "", "Path to kbox.yaml (default: ./kbox.yaml)")
 	renderCmd.Flags().Bool("redact", false, "Redact secret values in output (for security)")
+	renderCmd.Flags().Bool("summary", false, "Show resource summary instead of full YAML")
 	rootCmd.AddCommand(renderCmd)
 }

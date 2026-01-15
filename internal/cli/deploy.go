@@ -164,12 +164,19 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Dry run - just show what would be applied
+	// Dry run - show what would be applied
 	if dryRun {
-		if !ciMode {
-			fmt.Println("Dry run - would apply:")
+		if outputFormat == "json" {
+			// JSON output for CI pipelines
+			return bundle.ToJSON(os.Stdout)
 		}
-		return bundle.ToYAML(os.Stdout)
+		// Show resource summary
+		fmt.Println("Dry run - would deploy the following resources:")
+		fmt.Println()
+		printDeployPreview(bundle)
+		fmt.Println()
+		fmt.Println("Run without --dry-run to apply these resources.")
+		return nil
 	}
 
 	// Connect to cluster
@@ -296,6 +303,76 @@ func extractName(s string) string {
 		}
 	}
 	return s
+}
+
+// printDeployPreview prints a preview of resources that would be deployed
+func printDeployPreview(bundle *render.Bundle) {
+	total := len(bundle.AllObjects())
+	fmt.Printf("  Total resources: %d\n\n", total)
+
+	// Core workload
+	if bundle.Deployment != nil {
+		replicas := int32(1)
+		if bundle.Deployment.Spec.Replicas != nil {
+			replicas = *bundle.Deployment.Spec.Replicas
+		}
+		fmt.Printf("  Deployment:      %s (%d replicas)\n", bundle.Deployment.Name, replicas)
+		if len(bundle.Deployment.Spec.Template.Spec.Containers) > 0 {
+			fmt.Printf("    Image: %s\n", bundle.Deployment.Spec.Template.Spec.Containers[0].Image)
+		}
+	}
+
+	// Services
+	if len(bundle.Services) > 0 {
+		fmt.Printf("  Services:        %d\n", len(bundle.Services))
+		for _, svc := range bundle.Services {
+			svcType := svc.Spec.Type
+			if svcType == "" {
+				svcType = "ClusterIP"
+			}
+			fmt.Printf("    - %s (%s)\n", svc.Name, svcType)
+		}
+	}
+
+	// Secrets
+	if len(bundle.Secrets) > 0 {
+		fmt.Printf("  Secrets:         %d\n", len(bundle.Secrets))
+	}
+
+	// Service account
+	if bundle.ServiceAccount != nil {
+		fmt.Printf("  ServiceAccount:  %s\n", bundle.ServiceAccount.Name)
+	}
+
+	// Autoscaling
+	if bundle.HPA != nil {
+		fmt.Printf("  HPA:             %s (min: %d, max: %d)\n",
+			bundle.HPA.Name,
+			*bundle.HPA.Spec.MinReplicas,
+			bundle.HPA.Spec.MaxReplicas)
+	}
+
+	// PDB
+	if bundle.PDB != nil {
+		fmt.Printf("  PDB:             %s\n", bundle.PDB.Name)
+	}
+
+	// Network policies
+	if len(bundle.NetworkPolicies) > 0 {
+		fmt.Printf("  NetworkPolicies: %d\n", len(bundle.NetworkPolicies))
+	}
+
+	// Dependencies
+	if len(bundle.StatefulSets) > 0 {
+		fmt.Printf("\n  Dependencies:\n")
+		for _, ss := range bundle.StatefulSets {
+			var storage string
+			if len(ss.Spec.VolumeClaimTemplates) > 0 {
+				storage = ss.Spec.VolumeClaimTemplates[0].Spec.Resources.Requests.Storage().String()
+			}
+			fmt.Printf("    - %s (StatefulSet, %s storage)\n", ss.Name, storage)
+		}
+	}
 }
 
 func init() {
