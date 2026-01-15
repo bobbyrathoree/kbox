@@ -26,6 +26,7 @@ Examples:
 
 func runRender(cmd *cobra.Command, args []string) error {
 	env, _ := cmd.Flags().GetString("env")
+	redact, _ := cmd.Flags().GetBool("redact")
 	ciMode := IsCIMode(cmd)
 
 	loader := config.NewLoader(".")
@@ -114,6 +115,11 @@ func runRender(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Redact secrets if requested
+	if redact {
+		bundle = redactSecrets(bundle)
+	}
+
 	// Output YAML
 	if !ciMode {
 		fmt.Fprintln(os.Stderr) // Blank line before YAML
@@ -121,8 +127,34 @@ func runRender(cmd *cobra.Command, args []string) error {
 	return bundle.ToYAML(os.Stdout)
 }
 
+// redactSecrets replaces all secret data with redacted placeholders
+func redactSecrets(bundle *render.Bundle) *render.Bundle {
+	for _, secret := range bundle.Secrets {
+		// Redact existing Data entries
+		for key := range secret.Data {
+			secret.Data[key] = []byte("[REDACTED]")
+		}
+
+		// Convert StringData keys to redacted Data entries
+		// This ensures the YAML output shows data with [REDACTED] values
+		// even when secrets were created with StringData
+		if len(secret.StringData) > 0 {
+			if secret.Data == nil {
+				secret.Data = make(map[string][]byte)
+			}
+			for key := range secret.StringData {
+				secret.Data[key] = []byte("[REDACTED]")
+			}
+			// Clear StringData since we've moved keys to Data
+			secret.StringData = nil
+		}
+	}
+	return bundle
+}
+
 func init() {
 	renderCmd.Flags().StringP("env", "e", "", "Environment overlay to apply (e.g., dev, staging, prod)")
 	renderCmd.Flags().StringP("file", "f", "", "Path to kbox.yaml (default: ./kbox.yaml)")
+	renderCmd.Flags().Bool("redact", false, "Redact secret values in output (for security)")
 	rootCmd.AddCommand(renderCmd)
 }

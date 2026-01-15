@@ -12,13 +12,20 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
+// SecretEnvRef describes an environment variable that should reference a secret
+type SecretEnvRef struct {
+	SecretName string
+	SecretKey  string
+}
+
 // DependencyResources holds rendered resources for a dependency
 type DependencyResources struct {
-	StatefulSet *appsv1.StatefulSet
-	Service     *corev1.Service
-	Secret      *corev1.Secret
-	PVC         *corev1.PersistentVolumeClaim
-	EnvVars     map[string]string // To inject into app
+	StatefulSet   *appsv1.StatefulSet
+	Service       *corev1.Service
+	Secret        *corev1.Secret
+	PVC           *corev1.PersistentVolumeClaim
+	EnvVars       map[string]string       // Non-secret env vars to inject into app
+	SecretEnvRefs map[string]SecretEnvRef // Env vars that should use secretKeyRef
 }
 
 // RenderDependency renders a single dependency into K8s resources
@@ -38,8 +45,21 @@ func (r *Renderer) RenderDependency(dep config.DependencyConfig) (*DependencyRes
 		password = dependencies.GeneratePassword()
 	}
 
+	// Get env vars - separate plaintext from password-containing ones
+	plainEnvVars, secretEnvVars, secretData := dependencies.RenderEnvVarsWithSecretRefs(template, serviceName, serviceName, password)
+
+	// Convert secretEnvVars to SecretEnvRef
+	secretEnvRefs := make(map[string]SecretEnvRef)
+	for k, v := range secretEnvVars {
+		secretEnvRefs[k] = SecretEnvRef{
+			SecretName: v.SecretName,
+			SecretKey:  v.SecretKey,
+		}
+	}
+
 	resources := &DependencyResources{
-		EnvVars: dependencies.RenderEnvVars(template, serviceName, password),
+		EnvVars:       plainEnvVars,
+		SecretEnvRefs: secretEnvRefs,
 	}
 
 	// Labels
@@ -65,8 +85,13 @@ func (r *Renderer) RenderDependency(dep config.DependencyConfig) (*DependencyRes
 			},
 			StringData: make(map[string]string),
 		}
+		// Add the dependency's own password env vars (e.g., POSTGRES_PASSWORD)
 		for _, key := range template.SecretKeys {
 			resources.Secret.StringData[key] = password
+		}
+		// Add rendered env vars that contain passwords for the app to use via secretKeyRef
+		for key, value := range secretData {
+			resources.Secret.StringData[key] = value
 		}
 	}
 
@@ -103,6 +128,24 @@ func (r *Renderer) RenderDependency(dep config.DependencyConfig) (*DependencyRes
 	image := dependencies.ImageWithVersion(template, dep.Version)
 	replicas := int32(1)
 
+	// Build container with security context
+	depContainer := corev1.Container{
+		Name:  dep.Type,
+		Image: image,
+		Ports: []corev1.ContainerPort{
+			{
+				ContainerPort: template.DefaultPort,
+			},
+		},
+		VolumeMounts: []corev1.VolumeMount{
+			{
+				Name:      "data",
+				MountPath: getDataPath(dep.Type),
+			},
+		},
+		SecurityContext: defaultContainerSecurityContext(),
+	}
+
 	statefulSet := &appsv1.StatefulSet{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "apps/v1",
@@ -124,23 +167,8 @@ func (r *Renderer) RenderDependency(dep config.DependencyConfig) (*DependencyRes
 					Labels: labels,
 				},
 				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{
-						{
-							Name:  dep.Type,
-							Image: image,
-							Ports: []corev1.ContainerPort{
-								{
-									ContainerPort: template.DefaultPort,
-								},
-							},
-							VolumeMounts: []corev1.VolumeMount{
-								{
-									Name:      "data",
-									MountPath: getDataPath(dep.Type),
-								},
-							},
-						},
-					},
+					SecurityContext: defaultPodSecurityContext(),
+					Containers:      []corev1.Container{depContainer},
 				},
 			},
 			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{
@@ -232,16 +260,17 @@ func (r *Renderer) RenderDependency(dep config.DependencyConfig) (*DependencyRes
 }
 
 // RenderAllDependencies renders all dependencies and returns collected resources
-func (r *Renderer) RenderAllDependencies() ([]*appsv1.StatefulSet, []*corev1.Service, []*corev1.Secret, map[string]string, error) {
+func (r *Renderer) RenderAllDependencies() ([]*appsv1.StatefulSet, []*corev1.Service, []*corev1.Secret, map[string]string, map[string]SecretEnvRef, error) {
 	var statefulSets []*appsv1.StatefulSet
 	var services []*corev1.Service
 	var secrets []*corev1.Secret
 	envVars := make(map[string]string)
+	secretEnvRefs := make(map[string]SecretEnvRef)
 
 	for _, dep := range r.config.Spec.Dependencies {
 		res, err := r.RenderDependency(dep)
 		if err != nil {
-			return nil, nil, nil, nil, err
+			return nil, nil, nil, nil, nil, err
 		}
 
 		statefulSets = append(statefulSets, res.StatefulSet)
@@ -254,9 +283,14 @@ func (r *Renderer) RenderAllDependencies() ([]*appsv1.StatefulSet, []*corev1.Ser
 		for k, v := range res.EnvVars {
 			envVars[k] = v
 		}
+
+		// Collect secret env refs
+		for k, v := range res.SecretEnvRefs {
+			secretEnvRefs[k] = v
+		}
 	}
 
-	return statefulSets, services, secrets, envVars, nil
+	return statefulSets, services, secrets, envVars, secretEnvRefs, nil
 }
 
 // getDataPath returns the data directory path for a dependency type

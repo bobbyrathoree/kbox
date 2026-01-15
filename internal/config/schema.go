@@ -62,6 +62,15 @@ type AppSpec struct {
 
 	// Dependencies are managed database/cache services
 	Dependencies []DependencyConfig `yaml:"dependencies,omitempty" json:"dependencies,omitempty"`
+
+	// Volumes for persistent storage, ephemeral storage, or config mounts
+	Volumes []VolumeConfig `yaml:"volumes,omitempty" json:"volumes,omitempty"`
+
+	// InitContainers run before the main container starts
+	InitContainers []InitContainerConfig `yaml:"initContainers,omitempty" json:"initContainers,omitempty"`
+
+	// Jobs for one-off tasks and scheduled jobs (CronJobs)
+	Jobs []JobConfig `yaml:"jobs,omitempty" json:"jobs,omitempty"`
 }
 
 // DependencyConfig defines a managed dependency like postgres or redis
@@ -77,6 +86,81 @@ type DependencyConfig struct {
 
 	// Resources for the dependency container
 	Resources *ResourceConfig `yaml:"resources,omitempty" json:"resources,omitempty"`
+}
+
+// VolumeConfig defines a volume mount for the app
+type VolumeConfig struct {
+	// Name of the volume (used for PVC name and volume reference)
+	Name string `yaml:"name" json:"name"`
+
+	// MountPath where the volume is mounted in the container
+	MountPath string `yaml:"mountPath" json:"mountPath"`
+
+	// Size creates a PersistentVolumeClaim with this size (e.g., "10Gi")
+	Size string `yaml:"size,omitempty" json:"size,omitempty"`
+
+	// EmptyDir creates an ephemeral volume (not persisted across restarts)
+	EmptyDir bool `yaml:"emptyDir,omitempty" json:"emptyDir,omitempty"`
+
+	// ConfigMap mounts a ConfigMap as a volume
+	ConfigMap string `yaml:"configMap,omitempty" json:"configMap,omitempty"`
+
+	// Secret mounts a Secret as a volume
+	Secret string `yaml:"secret,omitempty" json:"secret,omitempty"`
+
+	// SubPath mounts a specific key from ConfigMap/Secret
+	SubPath string `yaml:"subPath,omitempty" json:"subPath,omitempty"`
+
+	// ReadOnly mounts the volume as read-only
+	ReadOnly bool `yaml:"readOnly,omitempty" json:"readOnly,omitempty"`
+}
+
+// InitContainerConfig defines an init container that runs before the main container
+type InitContainerConfig struct {
+	// Name of the init container
+	Name string `yaml:"name" json:"name"`
+
+	// Image for the init container (defaults to app image if not specified)
+	Image string `yaml:"image,omitempty" json:"image,omitempty"`
+
+	// Command to run
+	Command []string `yaml:"command" json:"command"`
+
+	// Args for the command
+	Args []string `yaml:"args,omitempty" json:"args,omitempty"`
+
+	// Env variables for the init container
+	Env map[string]string `yaml:"env,omitempty" json:"env,omitempty"`
+}
+
+// JobConfig defines a Job or CronJob
+type JobConfig struct {
+	// Name of the job
+	Name string `yaml:"name" json:"name"`
+
+	// Image for the job (defaults to app image if not specified)
+	Image string `yaml:"image,omitempty" json:"image,omitempty"`
+
+	// Command to run
+	Command []string `yaml:"command" json:"command"`
+
+	// Args for the command
+	Args []string `yaml:"args,omitempty" json:"args,omitempty"`
+
+	// Schedule in cron format (makes this a CronJob)
+	Schedule string `yaml:"schedule,omitempty" json:"schedule,omitempty"`
+
+	// RunBefore specifies when to run (e.g., "deploy" for pre-deploy hooks)
+	RunBefore string `yaml:"runBefore,omitempty" json:"runBefore,omitempty"`
+
+	// Env variables for the job
+	Env map[string]string `yaml:"env,omitempty" json:"env,omitempty"`
+
+	// BackoffLimit specifies the number of retries before marking as failed
+	BackoffLimit *int32 `yaml:"backoffLimit,omitempty" json:"backoffLimit,omitempty"`
+
+	// TTLSecondsAfterFinished limits the lifetime of finished jobs
+	TTLSecondsAfterFinished *int32 `yaml:"ttlSecondsAfterFinished,omitempty" json:"ttlSecondsAfterFinished,omitempty"`
 }
 
 // BuildConfig defines how to build the image
@@ -141,6 +225,9 @@ type IngressConfig struct {
 	// Path prefix (default: /)
 	Path string `yaml:"path,omitempty" json:"path,omitempty"`
 
+	// IngressClass specifies which ingress controller to use (e.g., "nginx", "traefik")
+	IngressClass string `yaml:"ingressClass,omitempty" json:"ingressClass,omitempty"`
+
 	// TLS configuration
 	TLS *TLSConfig `yaml:"tls,omitempty" json:"tls,omitempty"`
 
@@ -155,6 +242,9 @@ type TLSConfig struct {
 
 	// SecretName for TLS certificate
 	SecretName string `yaml:"secretName,omitempty" json:"secretName,omitempty"`
+
+	// ClusterIssuer for cert-manager automatic certificate provisioning
+	ClusterIssuer string `yaml:"clusterIssuer,omitempty" json:"clusterIssuer,omitempty"`
 }
 
 // OverrideConfig allows overriding generated resources

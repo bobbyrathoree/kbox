@@ -10,6 +10,39 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
+// Security context helpers for hardened pod defaults
+
+// defaultPodSecurityContext returns a secure pod-level security context
+// that runs as non-root with specific UID/GID
+func defaultPodSecurityContext() *corev1.PodSecurityContext {
+	runAsUser := int64(1000)
+	runAsGroup := int64(1000)
+	fsGroup := int64(1000)
+	runAsNonRoot := true
+
+	return &corev1.PodSecurityContext{
+		RunAsNonRoot: &runAsNonRoot,
+		RunAsUser:    &runAsUser,
+		RunAsGroup:   &runAsGroup,
+		FSGroup:      &fsGroup,
+	}
+}
+
+// defaultContainerSecurityContext returns a secure container-level security context
+// that prevents privilege escalation and drops all capabilities
+func defaultContainerSecurityContext() *corev1.SecurityContext {
+	allowPrivilegeEscalation := false
+	readOnlyRootFilesystem := true
+
+	return &corev1.SecurityContext{
+		AllowPrivilegeEscalation: &allowPrivilegeEscalation,
+		ReadOnlyRootFilesystem:   &readOnlyRootFilesystem,
+		Capabilities: &corev1.Capabilities{
+			Drop: []corev1.Capability{"ALL"},
+		},
+	}
+}
+
 // RenderDeployment renders a Kubernetes Deployment from the config
 func (r *Renderer) RenderDeployment() (*appsv1.Deployment, error) {
 	cfg := r.config
@@ -70,6 +103,14 @@ func (r *Renderer) RenderDeployment() (*appsv1.Deployment, error) {
 		container.ReadinessProbe.InitialDelaySeconds = 3
 	}
 
+	// Add volume mounts if volumes are configured
+	if len(cfg.Spec.Volumes) > 0 {
+		container.VolumeMounts = r.renderVolumeMounts()
+	}
+
+	// Add container-level security context
+	container.SecurityContext = defaultContainerSecurityContext()
+
 	// Build deployment
 	deployment := &appsv1.Deployment{
 		TypeMeta: metav1.TypeMeta{
@@ -91,7 +132,10 @@ func (r *Renderer) RenderDeployment() (*appsv1.Deployment, error) {
 					Labels: r.Labels(),
 				},
 				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{container},
+					SecurityContext: defaultPodSecurityContext(),
+					InitContainers:  r.renderInitContainers(),
+					Containers:      []corev1.Container{container},
+					Volumes:         r.renderPodVolumes(),
 				},
 			},
 			Strategy: appsv1.DeploymentStrategy{
@@ -210,6 +254,48 @@ func sortEnvVars(envVars []corev1.EnvVar) {
 			}
 		}
 	}
+}
+
+// renderInitContainers creates init containers from config
+func (r *Renderer) renderInitContainers() []corev1.Container {
+	var initContainers []corev1.Container
+
+	for _, ic := range r.config.Spec.InitContainers {
+		// Default to app image if not specified
+		image := ic.Image
+		if image == "" {
+			image = r.config.Spec.Image
+		}
+
+		container := corev1.Container{
+			Name:    ic.Name,
+			Image:   image,
+			Command: ic.Command,
+			Args:    ic.Args,
+		}
+
+		// Add env vars if specified
+		if len(ic.Env) > 0 {
+			for k, v := range ic.Env {
+				container.Env = append(container.Env, corev1.EnvVar{
+					Name:  k,
+					Value: v,
+				})
+			}
+		}
+
+		// Share volume mounts with init containers
+		if len(r.config.Spec.Volumes) > 0 {
+			container.VolumeMounts = r.renderVolumeMounts()
+		}
+
+		// Add container-level security context
+		container.SecurityContext = defaultContainerSecurityContext()
+
+		initContainers = append(initContainers, container)
+	}
+
+	return initContainers
 }
 
 // ImageWithTag returns the image with a specific tag

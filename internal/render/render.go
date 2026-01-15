@@ -4,6 +4,7 @@ import (
 	"github.com/bobbyrathoree/kbox/internal/config"
 	"github.com/bobbyrathoree/kbox/internal/secrets"
 	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -12,24 +13,31 @@ import (
 // Bundle contains all rendered Kubernetes objects for an app
 type Bundle struct {
 	// Objects in apply order
-	Namespace    *corev1.Namespace
-	ConfigMaps   []*corev1.ConfigMap
-	Secrets      []*corev1.Secret
-	Services     []*corev1.Service
-	StatefulSets []*appsv1.StatefulSet
-	Deployments  []*appsv1.Deployment
-	Ingresses    []*networkingv1.Ingress
+	Namespace              *corev1.Namespace
+	PersistentVolumeClaims []*corev1.PersistentVolumeClaim
+	ConfigMaps             []*corev1.ConfigMap
+	Secrets                []*corev1.Secret
+	Services               []*corev1.Service
+	StatefulSets           []*appsv1.StatefulSet
+	Deployments            []*appsv1.Deployment
+	Jobs                   []*batchv1.Job
+	CronJobs               []*batchv1.CronJob
+	Ingresses              []*networkingv1.Ingress
 	// Deployment is kept for backward compatibility (points to first deployment)
 	Deployment *appsv1.Deployment
 }
 
 // AllObjects returns all objects in the bundle in apply order
-// Order: Namespace, ConfigMaps, Secrets, Services, StatefulSets, Deployments, Ingresses
+// Order: Namespace, PVCs, ConfigMaps, Secrets, Services, StatefulSets, Deployments, Jobs, CronJobs, Ingresses
 func (b *Bundle) AllObjects() []runtime.Object {
 	var objects []runtime.Object
 
 	if b.Namespace != nil {
 		objects = append(objects, b.Namespace)
+	}
+	// PVCs before anything that might use them
+	for _, pvc := range b.PersistentVolumeClaims {
+		objects = append(objects, pvc)
 	}
 	for _, cm := range b.ConfigMaps {
 		objects = append(objects, cm)
@@ -51,6 +59,14 @@ func (b *Bundle) AllObjects() []runtime.Object {
 		}
 	} else if b.Deployment != nil {
 		objects = append(objects, b.Deployment)
+	}
+	// Jobs after Deployment
+	for _, job := range b.Jobs {
+		objects = append(objects, job)
+	}
+	// CronJobs after Jobs
+	for _, cronJob := range b.CronJobs {
+		objects = append(objects, cronJob)
 	}
 	// Ingresses last (depends on Services)
 	for _, ing := range b.Ingresses {
@@ -76,8 +92,9 @@ func (r *Renderer) Render() (*Bundle, error) {
 
 	// Render dependencies first (databases, caches)
 	var depEnvVars map[string]string
+	var depSecretEnvRefs map[string]SecretEnvRef
 	if len(r.config.Spec.Dependencies) > 0 {
-		statefulSets, depServices, depSecrets, envVars, err := r.RenderAllDependencies()
+		statefulSets, depServices, depSecrets, envVars, secretEnvRefs, err := r.RenderAllDependencies()
 		if err != nil {
 			return nil, err
 		}
@@ -85,6 +102,16 @@ func (r *Renderer) Render() (*Bundle, error) {
 		bundle.Services = append(bundle.Services, depServices...)
 		bundle.Secrets = append(bundle.Secrets, depSecrets...)
 		depEnvVars = envVars
+		depSecretEnvRefs = secretEnvRefs
+	}
+
+	// Render PersistentVolumeClaims for app volumes
+	if len(r.config.Spec.Volumes) > 0 {
+		pvcs, err := r.RenderVolumes()
+		if err != nil {
+			return nil, err
+		}
+		bundle.PersistentVolumeClaims = pvcs
 	}
 
 	// Render Deployment (with injected dependency env vars)
@@ -94,12 +121,30 @@ func (r *Renderer) Render() (*Bundle, error) {
 	}
 
 	// Inject dependency environment variables into the app deployment
-	if len(depEnvVars) > 0 {
+	if len(depEnvVars) > 0 || len(depSecretEnvRefs) > 0 {
 		for i := range deployment.Spec.Template.Spec.Containers {
+			// Add plaintext env vars (no passwords)
 			for k, v := range depEnvVars {
 				deployment.Spec.Template.Spec.Containers[i].Env = append(
 					deployment.Spec.Template.Spec.Containers[i].Env,
 					corev1.EnvVar{Name: k, Value: v},
+				)
+			}
+			// Add env vars that reference secrets (passwords)
+			for k, ref := range depSecretEnvRefs {
+				deployment.Spec.Template.Spec.Containers[i].Env = append(
+					deployment.Spec.Template.Spec.Containers[i].Env,
+					corev1.EnvVar{
+						Name: k,
+						ValueFrom: &corev1.EnvVarSource{
+							SecretKeyRef: &corev1.SecretKeySelector{
+								LocalObjectReference: corev1.LocalObjectReference{
+									Name: ref.SecretName,
+								},
+								Key: ref.SecretKey,
+							},
+						},
+					},
 				)
 			}
 		}
@@ -149,6 +194,16 @@ func (r *Renderer) Render() (*Bundle, error) {
 			return nil, err
 		}
 		bundle.Ingresses = append(bundle.Ingresses, ingress)
+	}
+
+	// Render Jobs and CronJobs if configured
+	if len(r.config.Spec.Jobs) > 0 {
+		jobs, cronJobs, err := r.RenderJobs()
+		if err != nil {
+			return nil, err
+		}
+		bundle.Jobs = jobs
+		bundle.CronJobs = cronJobs
 	}
 
 	return bundle, nil

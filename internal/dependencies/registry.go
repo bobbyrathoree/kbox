@@ -141,6 +141,45 @@ func RenderEnvVars(template Template, serviceName, password string) map[string]s
 	return result
 }
 
+// EnvVarSecretInfo holds information about how an env var should reference a secret
+type EnvVarSecretInfo struct {
+	SecretName string
+	SecretKey  string
+}
+
+// RenderEnvVarsWithSecretRefs separates env vars into those with plaintext values
+// and those that should use secretKeyRef to avoid exposing passwords in plain text.
+// It also returns the secret data that should be added to the dependency secret.
+func RenderEnvVarsWithSecretRefs(template Template, serviceName, secretName, password string) (plainEnvVars map[string]string, secretEnvVars map[string]EnvVarSecretInfo, secretData map[string]string) {
+	plainEnvVars = make(map[string]string)
+	secretEnvVars = make(map[string]EnvVarSecretInfo)
+	secretData = make(map[string]string)
+
+	for k, v := range template.EnvVars {
+		if strings.Contains(v, "{{.Password}}") {
+			// This env var contains a password - store the rendered value in the secret
+			// and reference it with secretKeyRef
+			rendered := v
+			rendered = strings.ReplaceAll(rendered, "{{.Service}}", serviceName)
+			rendered = strings.ReplaceAll(rendered, "{{.Password}}", password)
+
+			// Store in secret data with the env var name as the key
+			secretData[k] = rendered
+
+			// App should reference this key from the secret
+			secretEnvVars[k] = EnvVarSecretInfo{
+				SecretName: secretName,
+				SecretKey:  k,
+			}
+		} else {
+			// No password - render as plaintext
+			rendered := strings.ReplaceAll(v, "{{.Service}}", serviceName)
+			plainEnvVars[k] = rendered
+		}
+	}
+	return plainEnvVars, secretEnvVars, secretData
+}
+
 // ImageWithVersion returns the full image reference
 func ImageWithVersion(template Template, version string) string {
 	if version == "" {

@@ -19,7 +19,7 @@ var downCmd = &cobra.Command{
 	Short: "Remove app resources from cluster",
 	Long: `Delete all Kubernetes resources created by kbox for this app.
 
-This removes: Deployment, Service, ConfigMaps, Secrets, StatefulSets.
+This removes: Deployment, Jobs, CronJobs, StatefulSets, Service, Ingress, ConfigMaps, Secrets.
 PersistentVolumeClaims are NOT deleted by default (to preserve data).
 
 Examples:
@@ -108,7 +108,7 @@ func runDown(cmd *cobra.Command, args []string) error {
 
 	// Delete in reverse dependency order
 
-	// 1. Deployments
+	// 1. Deployments (app first)
 	deps, err := client.Clientset.AppsV1().Deployments(targetNS).List(ctx, listOpts)
 	if err == nil {
 		for _, dep := range deps.Items {
@@ -121,7 +121,33 @@ func runDown(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// 2. StatefulSets
+	// 2. Jobs (one-off jobs)
+	jobs, err := client.Clientset.BatchV1().Jobs(targetNS).List(ctx, listOpts)
+	if err == nil {
+		for _, job := range jobs.Items {
+			if err := client.Clientset.BatchV1().Jobs(targetNS).Delete(ctx, job.Name, deleteOpts); err == nil {
+				deleted = append(deleted, fmt.Sprintf("Job/%s", job.Name))
+				fmt.Printf("  ✓ Deleted Job/%s\n", job.Name)
+			} else {
+				errors = append(errors, fmt.Errorf("Job/%s: %w", job.Name, err))
+			}
+		}
+	}
+
+	// 3. CronJobs (scheduled jobs)
+	cronjobs, err := client.Clientset.BatchV1().CronJobs(targetNS).List(ctx, listOpts)
+	if err == nil {
+		for _, cj := range cronjobs.Items {
+			if err := client.Clientset.BatchV1().CronJobs(targetNS).Delete(ctx, cj.Name, deleteOpts); err == nil {
+				deleted = append(deleted, fmt.Sprintf("CronJob/%s", cj.Name))
+				fmt.Printf("  ✓ Deleted CronJob/%s\n", cj.Name)
+			} else {
+				errors = append(errors, fmt.Errorf("CronJob/%s: %w", cj.Name, err))
+			}
+		}
+	}
+
+	// 4. StatefulSets (dependencies like postgres/redis)
 	statefulsets, err := client.Clientset.AppsV1().StatefulSets(targetNS).List(ctx, listOpts)
 	if err == nil {
 		for _, ss := range statefulsets.Items {
@@ -134,7 +160,7 @@ func runDown(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// 3. Services
+	// 5. Services
 	services, err := client.Clientset.CoreV1().Services(targetNS).List(ctx, listOpts)
 	if err == nil {
 		for _, svc := range services.Items {
@@ -147,20 +173,20 @@ func runDown(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// 4. Secrets (with kbox labels)
-	secrets, err := client.Clientset.CoreV1().Secrets(targetNS).List(ctx, listOpts)
+	// 6. Ingresses
+	ingresses, err := client.Clientset.NetworkingV1().Ingresses(targetNS).List(ctx, listOpts)
 	if err == nil {
-		for _, secret := range secrets.Items {
-			if err := client.Clientset.CoreV1().Secrets(targetNS).Delete(ctx, secret.Name, deleteOpts); err == nil {
-				deleted = append(deleted, fmt.Sprintf("Secret/%s", secret.Name))
-				fmt.Printf("  ✓ Deleted Secret/%s\n", secret.Name)
+		for _, ing := range ingresses.Items {
+			if err := client.Clientset.NetworkingV1().Ingresses(targetNS).Delete(ctx, ing.Name, deleteOpts); err == nil {
+				deleted = append(deleted, fmt.Sprintf("Ingress/%s", ing.Name))
+				fmt.Printf("  ✓ Deleted Ingress/%s\n", ing.Name)
 			} else {
-				errors = append(errors, fmt.Errorf("Secret/%s: %w", secret.Name, err))
+				errors = append(errors, fmt.Errorf("Ingress/%s: %w", ing.Name, err))
 			}
 		}
 	}
 
-	// 5. ConfigMaps
+	// 7. ConfigMaps
 	configmaps, err := client.Clientset.CoreV1().ConfigMaps(targetNS).List(ctx, listOpts)
 	if err == nil {
 		for _, cm := range configmaps.Items {
@@ -173,7 +199,20 @@ func runDown(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// 6. PVCs (only with --all flag)
+	// 8. Secrets (with kbox labels)
+	secrets, err := client.Clientset.CoreV1().Secrets(targetNS).List(ctx, listOpts)
+	if err == nil {
+		for _, secret := range secrets.Items {
+			if err := client.Clientset.CoreV1().Secrets(targetNS).Delete(ctx, secret.Name, deleteOpts); err == nil {
+				deleted = append(deleted, fmt.Sprintf("Secret/%s", secret.Name))
+				fmt.Printf("  ✓ Deleted Secret/%s\n", secret.Name)
+			} else {
+				errors = append(errors, fmt.Errorf("Secret/%s: %w", secret.Name, err))
+			}
+		}
+	}
+
+	// 9. PVCs (only with --all flag, data last)
 	if all {
 		pvcs, err := client.Clientset.CoreV1().PersistentVolumeClaims(targetNS).List(ctx, listOpts)
 		if err == nil {
@@ -193,6 +232,71 @@ func runDown(cmd *cobra.Command, args []string) error {
 	if err := client.Clientset.CoreV1().ConfigMaps(targetNS).Delete(ctx, releaseHistoryCM, deleteOpts); err == nil {
 		deleted = append(deleted, fmt.Sprintf("ConfigMap/%s", releaseHistoryCM))
 		fmt.Printf("  ✓ Deleted ConfigMap/%s\n", releaseHistoryCM)
+	}
+
+	// Phase 2: Clean up dependency resources (postgres/redis StatefulSets, Services, Secrets)
+	// Dependencies use the kbox.dev/app label instead of the app label
+	depSelector := fmt.Sprintf("kbox.dev/app=%s", appName)
+	depListOpts := metav1.ListOptions{LabelSelector: depSelector}
+
+	// Track already deleted resources to avoid duplicates
+	deletedSet := make(map[string]bool)
+	for _, d := range deleted {
+		deletedSet[d] = true
+	}
+
+	// Delete dependency StatefulSets
+	depStatefulsets, err := client.Clientset.AppsV1().StatefulSets(targetNS).List(ctx, depListOpts)
+	if err == nil {
+		for _, ss := range depStatefulsets.Items {
+			resourceKey := fmt.Sprintf("StatefulSet/%s", ss.Name)
+			if deletedSet[resourceKey] {
+				continue // Already deleted in main app cleanup
+			}
+			if err := client.Clientset.AppsV1().StatefulSets(targetNS).Delete(ctx, ss.Name, deleteOpts); err == nil {
+				deleted = append(deleted, resourceKey)
+				deletedSet[resourceKey] = true
+				fmt.Printf("  ✓ Deleted StatefulSet/%s\n", ss.Name)
+			} else {
+				errors = append(errors, fmt.Errorf("StatefulSet/%s: %w", ss.Name, err))
+			}
+		}
+	}
+
+	// Delete dependency Services
+	depServices, err := client.Clientset.CoreV1().Services(targetNS).List(ctx, depListOpts)
+	if err == nil {
+		for _, svc := range depServices.Items {
+			resourceKey := fmt.Sprintf("Service/%s", svc.Name)
+			if deletedSet[resourceKey] {
+				continue // Already deleted in main app cleanup
+			}
+			if err := client.Clientset.CoreV1().Services(targetNS).Delete(ctx, svc.Name, deleteOpts); err == nil {
+				deleted = append(deleted, resourceKey)
+				deletedSet[resourceKey] = true
+				fmt.Printf("  ✓ Deleted Service/%s\n", svc.Name)
+			} else {
+				errors = append(errors, fmt.Errorf("Service/%s: %w", svc.Name, err))
+			}
+		}
+	}
+
+	// Delete dependency Secrets
+	depSecrets, err := client.Clientset.CoreV1().Secrets(targetNS).List(ctx, depListOpts)
+	if err == nil {
+		for _, secret := range depSecrets.Items {
+			resourceKey := fmt.Sprintf("Secret/%s", secret.Name)
+			if deletedSet[resourceKey] {
+				continue // Already deleted in main app cleanup
+			}
+			if err := client.Clientset.CoreV1().Secrets(targetNS).Delete(ctx, secret.Name, deleteOpts); err == nil {
+				deleted = append(deleted, resourceKey)
+				deletedSet[resourceKey] = true
+				fmt.Printf("  ✓ Deleted Secret/%s\n", secret.Name)
+			} else {
+				errors = append(errors, fmt.Errorf("Secret/%s: %w", secret.Name, err))
+			}
+		}
 	}
 
 	// Summary

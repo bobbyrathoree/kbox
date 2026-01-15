@@ -8,6 +8,7 @@ import (
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -43,6 +44,11 @@ func NewEngine(client *kubernetes.Clientset, out io.Writer) *Engine {
 	}
 }
 
+// SetTimeout sets the timeout for rollout operations
+func (e *Engine) SetTimeout(timeout time.Duration) {
+	e.timeout = timeout
+}
+
 // ApplyResult contains the result of an apply operation
 type ApplyResult struct {
 	Created []string
@@ -53,6 +59,21 @@ type ApplyResult struct {
 // Apply applies a bundle to the cluster using Server-Side Apply
 func (e *Engine) Apply(ctx context.Context, bundle *render.Bundle) (*ApplyResult, error) {
 	result := &ApplyResult{}
+
+	// Stage 0: PersistentVolumeClaims (storage before anything else)
+	for _, pvc := range bundle.PersistentVolumeClaims {
+		created, err := e.applyPVC(ctx, pvc)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Errorf("pvc %s: %w", pvc.Name, err))
+			continue
+		}
+		if created {
+			result.Created = append(result.Created, fmt.Sprintf("PersistentVolumeClaim/%s", pvc.Name))
+		} else {
+			result.Updated = append(result.Updated, fmt.Sprintf("PersistentVolumeClaim/%s", pvc.Name))
+		}
+		fmt.Fprintf(e.out, "  ✓ PersistentVolumeClaim/%s\n", pvc.Name)
+	}
 
 	// Stage 1: ConfigMaps and Secrets (config first)
 	for _, cm := range bundle.ConfigMaps {
@@ -98,6 +119,21 @@ func (e *Engine) Apply(ctx context.Context, bundle *render.Bundle) (*ApplyResult
 		fmt.Fprintf(e.out, "  ✓ Service/%s\n", svc.Name)
 	}
 
+	// Stage 2.5: StatefulSets (databases/dependencies must be ready before app Deployment)
+	for _, ss := range bundle.StatefulSets {
+		created, err := e.applyStatefulSet(ctx, ss)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Errorf("statefulset %s: %w", ss.Name, err))
+			continue
+		}
+		if created {
+			result.Created = append(result.Created, fmt.Sprintf("StatefulSet/%s", ss.Name))
+		} else {
+			result.Updated = append(result.Updated, fmt.Sprintf("StatefulSet/%s", ss.Name))
+		}
+		fmt.Fprintf(e.out, "  ✓ StatefulSet/%s\n", ss.Name)
+	}
+
 	// Stage 3: Deployment
 	if bundle.Deployment != nil {
 		created, err := e.applyDeployment(ctx, bundle.Deployment)
@@ -126,6 +162,36 @@ func (e *Engine) Apply(ctx context.Context, bundle *render.Bundle) (*ApplyResult
 			result.Updated = append(result.Updated, fmt.Sprintf("Ingress/%s", ing.Name))
 		}
 		fmt.Fprintf(e.out, "  ✓ Ingress/%s\n", ing.Name)
+	}
+
+	// Stage 5: Jobs
+	for _, job := range bundle.Jobs {
+		created, err := e.applyJob(ctx, job)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Errorf("job %s: %w", job.Name, err))
+			continue
+		}
+		if created {
+			result.Created = append(result.Created, fmt.Sprintf("Job/%s", job.Name))
+		} else {
+			result.Updated = append(result.Updated, fmt.Sprintf("Job/%s", job.Name))
+		}
+		fmt.Fprintf(e.out, "  ✓ Job/%s\n", job.Name)
+	}
+
+	// Stage 6: CronJobs
+	for _, cronJob := range bundle.CronJobs {
+		created, err := e.applyCronJob(ctx, cronJob)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Errorf("cronjob %s: %w", cronJob.Name, err))
+			continue
+		}
+		if created {
+			result.Created = append(result.Created, fmt.Sprintf("CronJob/%s", cronJob.Name))
+		} else {
+			result.Updated = append(result.Updated, fmt.Sprintf("CronJob/%s", cronJob.Name))
+		}
+		fmt.Fprintf(e.out, "  ✓ CronJob/%s\n", cronJob.Name)
 	}
 
 	return result, nil
@@ -191,6 +257,10 @@ func (e *Engine) WaitForRollout(ctx context.Context, namespace, name string) err
 	}
 }
 
+func (e *Engine) applyPVC(ctx context.Context, pvc *corev1.PersistentVolumeClaim) (bool, error) {
+	return e.applyObject(ctx, pvc, "persistentvolumeclaims", pvc.Namespace, pvc.Name)
+}
+
 func (e *Engine) applyConfigMap(ctx context.Context, cm *corev1.ConfigMap) (bool, error) {
 	return e.applyObject(ctx, cm, "configmaps", cm.Namespace, cm.Name)
 }
@@ -207,8 +277,20 @@ func (e *Engine) applyDeployment(ctx context.Context, dep *appsv1.Deployment) (b
 	return e.applyObject(ctx, dep, "deployments", dep.Namespace, dep.Name)
 }
 
+func (e *Engine) applyStatefulSet(ctx context.Context, ss *appsv1.StatefulSet) (bool, error) {
+	return e.applyObject(ctx, ss, "statefulsets", ss.Namespace, ss.Name)
+}
+
 func (e *Engine) applyIngress(ctx context.Context, ing *networkingv1.Ingress) (bool, error) {
 	return e.applyObject(ctx, ing, "ingresses", ing.Namespace, ing.Name)
+}
+
+func (e *Engine) applyJob(ctx context.Context, job *batchv1.Job) (bool, error) {
+	return e.applyObject(ctx, job, "jobs", job.Namespace, job.Name)
+}
+
+func (e *Engine) applyCronJob(ctx context.Context, cronJob *batchv1.CronJob) (bool, error) {
+	return e.applyObject(ctx, cronJob, "cronjobs", cronJob.Namespace, cronJob.Name)
 }
 
 func (e *Engine) applyObject(ctx context.Context, obj runtime.Object, resource, namespace, name string) (bool, error) {
@@ -221,6 +303,9 @@ func (e *Engine) applyObject(ctx context.Context, obj runtime.Object, resource, 
 	// Check if object exists
 	var exists bool
 	switch resource {
+	case "persistentvolumeclaims":
+		_, err = e.client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, name, metav1.GetOptions{})
+		exists = err == nil
 	case "configmaps":
 		_, err = e.client.CoreV1().ConfigMaps(namespace).Get(ctx, name, metav1.GetOptions{})
 		exists = err == nil
@@ -233,8 +318,17 @@ func (e *Engine) applyObject(ctx context.Context, obj runtime.Object, resource, 
 	case "deployments":
 		_, err = e.client.AppsV1().Deployments(namespace).Get(ctx, name, metav1.GetOptions{})
 		exists = err == nil
+	case "statefulsets":
+		_, err = e.client.AppsV1().StatefulSets(namespace).Get(ctx, name, metav1.GetOptions{})
+		exists = err == nil
 	case "ingresses":
 		_, err = e.client.NetworkingV1().Ingresses(namespace).Get(ctx, name, metav1.GetOptions{})
+		exists = err == nil
+	case "jobs":
+		_, err = e.client.BatchV1().Jobs(namespace).Get(ctx, name, metav1.GetOptions{})
+		exists = err == nil
+	case "cronjobs":
+		_, err = e.client.BatchV1().CronJobs(namespace).Get(ctx, name, metav1.GetOptions{})
 		exists = err == nil
 	}
 
@@ -244,6 +338,8 @@ func (e *Engine) applyObject(ctx context.Context, obj runtime.Object, resource, 
 	}
 
 	switch resource {
+	case "persistentvolumeclaims":
+		_, err = e.client.CoreV1().PersistentVolumeClaims(namespace).Patch(ctx, name, types.ApplyPatchType, data, patchOpts)
 	case "configmaps":
 		_, err = e.client.CoreV1().ConfigMaps(namespace).Patch(ctx, name, types.ApplyPatchType, data, patchOpts)
 	case "secrets":
@@ -252,8 +348,14 @@ func (e *Engine) applyObject(ctx context.Context, obj runtime.Object, resource, 
 		_, err = e.client.CoreV1().Services(namespace).Patch(ctx, name, types.ApplyPatchType, data, patchOpts)
 	case "deployments":
 		_, err = e.client.AppsV1().Deployments(namespace).Patch(ctx, name, types.ApplyPatchType, data, patchOpts)
+	case "statefulsets":
+		_, err = e.client.AppsV1().StatefulSets(namespace).Patch(ctx, name, types.ApplyPatchType, data, patchOpts)
 	case "ingresses":
 		_, err = e.client.NetworkingV1().Ingresses(namespace).Patch(ctx, name, types.ApplyPatchType, data, patchOpts)
+	case "jobs":
+		_, err = e.client.BatchV1().Jobs(namespace).Patch(ctx, name, types.ApplyPatchType, data, patchOpts)
+	case "cronjobs":
+		_, err = e.client.BatchV1().CronJobs(namespace).Patch(ctx, name, types.ApplyPatchType, data, patchOpts)
 	default:
 		return false, fmt.Errorf("unknown resource type: %s", resource)
 	}

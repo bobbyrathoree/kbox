@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -36,6 +37,7 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 	env, _ := cmd.Flags().GetString("env")
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
 	noWait, _ := cmd.Flags().GetBool("no-wait")
+	timeout, _ := cmd.Flags().GetDuration("timeout")
 	namespace, _ := cmd.Flags().GetString("namespace")
 	kubeContext, _ := cmd.Flags().GetString("context")
 
@@ -192,6 +194,9 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 
 	// Apply
 	engine := apply.NewEngine(client.Clientset, applyOut)
+	if timeout > 0 {
+		engine.SetTimeout(timeout)
+	}
 	applyResult, err := engine.Apply(cmd.Context(), bundle)
 	if err != nil {
 		return finalize(err)
@@ -285,5 +290,6 @@ func init() {
 	deployCmd.Flags().StringP("env", "e", "", "Environment overlay to apply")
 	deployCmd.Flags().Bool("dry-run", false, "Show what would be deployed without applying")
 	deployCmd.Flags().Bool("no-wait", false, "Don't wait for rollout to complete")
+	deployCmd.Flags().Duration("timeout", 5*time.Minute, "Timeout for rollout completion (e.g., 10m, 30s)")
 	rootCmd.AddCommand(deployCmd)
 }

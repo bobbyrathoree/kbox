@@ -87,7 +87,13 @@ func (r *Renderer) RenderIngress() (*networkingv1.Ingress, error) {
 
 	// Merge annotations
 	annotations := make(map[string]string)
-	// Add any user-specified annotations
+
+	// Add cert-manager annotations if ClusterIssuer is specified
+	if cfg.TLS != nil && cfg.TLS.ClusterIssuer != "" {
+		annotations["cert-manager.io/cluster-issuer"] = cfg.TLS.ClusterIssuer
+	}
+
+	// Add any user-specified annotations (these take precedence)
 	for k, v := range cfg.Annotations {
 		annotations[k] = v
 	}
@@ -107,6 +113,11 @@ func (r *Renderer) RenderIngress() (*networkingv1.Ingress, error) {
 			Rules: rules,
 			TLS:   tls,
 		},
+	}
+
+	// Set IngressClass if specified
+	if cfg.IngressClass != "" {
+		ingress.Spec.IngressClassName = &cfg.IngressClass
 	}
 
 	return ingress, nil
