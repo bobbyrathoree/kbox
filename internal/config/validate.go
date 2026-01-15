@@ -127,6 +127,27 @@ func Validate(config *AppConfig) error {
 	return nil
 }
 
+// ValidateWithWarnings validates an AppConfig and returns warnings for non-critical issues
+func ValidateWithWarnings(config *AppConfig) ([]string, error) {
+	var warnings []string
+
+	// Check for :latest tag or missing tag (security/reproducibility risk)
+	if config.Spec.Image != "" {
+		if strings.HasSuffix(config.Spec.Image, ":latest") {
+			warnings = append(warnings, "image uses :latest tag - consider pinning to a specific version for reproducibility")
+		} else if !strings.Contains(config.Spec.Image, ":") && !strings.Contains(config.Spec.Image, "@") {
+			warnings = append(warnings, "image has no tag - will default to :latest, consider pinning to a specific version")
+		}
+	}
+
+	// Run standard validation
+	if err := Validate(config); err != nil {
+		return warnings, err
+	}
+
+	return warnings, nil
+}
+
 // IsValidName checks if a name is a valid Kubernetes name
 func IsValidName(name string) bool {
 	if len(name) == 0 || len(name) > 63 {

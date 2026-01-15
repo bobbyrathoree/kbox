@@ -34,6 +34,10 @@ type Template struct {
 
 	// ConnectCommand for kbox db connect
 	ConnectCommand []string
+
+	// CommandArgs are arguments to pass to the container command
+	// Used for databases that need password arguments (e.g., redis --requirepass)
+	CommandArgs []string
 }
 
 // Registry maps dependency types to their templates
@@ -61,13 +65,15 @@ var Registry = map[string]Template{
 		DefaultPort:    6379,
 		DefaultStorage: "1Gi",
 		EnvVars: map[string]string{
-			"REDIS_URL":  "redis://{{.Service}}:6379",
-			"REDIS_HOST": "{{.Service}}",
-			"REDIS_PORT": "6379",
+			"REDIS_URL":      "redis://:{{.Password}}@{{.Service}}:6379",
+			"REDIS_HOST":     "{{.Service}}",
+			"REDIS_PORT":     "6379",
+			"REDIS_PASSWORD": "{{.Password}}",
 		},
-		SecretKeys:     nil, // Redis doesn't require password by default
-		HealthCheck:    []string{"redis-cli", "ping"},
-		ConnectCommand: []string{"redis-cli"},
+		SecretKeys:     []string{"REDIS_PASSWORD"},
+		HealthCheck:    []string{"redis-cli", "-a", "$(REDIS_PASSWORD)", "ping"},
+		ConnectCommand: []string{"redis-cli", "-a", "$(REDIS_PASSWORD)"},
+		CommandArgs:    []string{"redis-server", "--requirepass", "$(REDIS_PASSWORD)"},
 	},
 	"mongodb": {
 		Image:          "mongo",
@@ -75,13 +81,15 @@ var Registry = map[string]Template{
 		DefaultPort:    27017,
 		DefaultStorage: "1Gi",
 		EnvVars: map[string]string{
-			"MONGODB_URL":  "mongodb://{{.Service}}:27017",
-			"MONGODB_HOST": "{{.Service}}",
-			"MONGODB_PORT": "27017",
+			"MONGODB_URL":      "mongodb://root:{{.Password}}@{{.Service}}:27017",
+			"MONGODB_HOST":     "{{.Service}}",
+			"MONGODB_PORT":     "27017",
+			"MONGODB_USER":     "root",
+			"MONGODB_PASSWORD": "{{.Password}}",
 		},
-		SecretKeys:     nil,
-		HealthCheck:    []string{"mongosh", "--eval", "db.adminCommand('ping')"},
-		ConnectCommand: []string{"mongosh"},
+		SecretKeys:     []string{"MONGO_INITDB_ROOT_PASSWORD"},
+		HealthCheck:    []string{"mongosh", "-u", "root", "-p", "$(MONGO_INITDB_ROOT_PASSWORD)", "--eval", "db.adminCommand('ping')"},
+		ConnectCommand: []string{"mongosh", "-u", "root", "-p", "$(MONGO_INITDB_ROOT_PASSWORD)"},
 	},
 	"mysql": {
 		Image:          "mysql",

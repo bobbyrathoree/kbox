@@ -2,7 +2,9 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"time"
 
@@ -29,8 +31,11 @@ type checkResult struct {
 }
 
 func runDoctor(cmd *cobra.Command, args []string) error {
-	fmt.Println("kbox doctor - checking your setup")
-	fmt.Println()
+	outputFormat := GetOutputFormat(cmd)
+	if outputFormat != "json" {
+		fmt.Println("kbox doctor - checking your setup")
+		fmt.Println()
+	}
 
 	var results []checkResult
 
@@ -109,15 +114,38 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		results = append(results, checkPermission(ctx, client, ns, "pods/exec", "create"))
 	}
 
-	// Print results
-	fmt.Println("Results:")
+	// Check for errors
 	hasErrors := false
+	for _, r := range results {
+		if !r.ok {
+			hasErrors = true
+			break
+		}
+	}
+
+	if outputFormat == "json" {
+		// Build JSON-friendly result
+		checks := make([]map[string]interface{}, len(results))
+		for i, r := range results {
+			checks[i] = map[string]interface{}{
+				"name":    r.name,
+				"ok":      r.ok,
+				"message": r.message,
+			}
+		}
+		return json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
+			"success": !hasErrors,
+			"checks":  checks,
+		})
+	}
+
+	// Print text results
+	fmt.Println("Results:")
 	for _, r := range results {
 		if r.ok {
 			fmt.Printf("  ✓ %s: %s\n", r.name, r.message)
 		} else {
 			fmt.Printf("  ✗ %s: %s\n", r.name, r.message)
-			hasErrors = true
 		}
 	}
 

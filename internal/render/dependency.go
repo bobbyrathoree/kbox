@@ -146,6 +146,14 @@ func (r *Renderer) RenderDependency(dep config.DependencyConfig) (*DependencyRes
 		SecurityContext: dependencySecurityContext(dep.Type),
 	}
 
+	// Add command args if the template requires them (e.g., redis --requirepass)
+	if len(template.CommandArgs) > 0 {
+		depContainer.Command = []string{template.CommandArgs[0]}
+		if len(template.CommandArgs) > 1 {
+			depContainer.Args = template.CommandArgs[1:]
+		}
+	}
+
 	statefulSet := &appsv1.StatefulSet{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "apps/v1",
