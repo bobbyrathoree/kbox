@@ -35,6 +35,7 @@ Examples:
 
 func runDeploy(cmd *cobra.Command, args []string) error {
 	env, _ := cmd.Flags().GetString("env")
+	configFile, _ := cmd.Flags().GetString("file")
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
 	noWait, _ := cmd.Flags().GetBool("no-wait")
 	timeout, _ := cmd.Flags().GetDuration("timeout")
@@ -72,6 +73,11 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 
 	// Load config
 	loader := config.NewLoader(".")
+
+	// If specific file provided, load directly (skip multi-service detection)
+	if configFile != "" {
+		return deployFromFile(cmd, configFile, env, namespace, kubeContext, dryRun, noWait, timeout, ciMode, outputFormat, timer)
+	}
 
 	// Check if this is a multi-service config
 	isMulti, err := loader.IsMultiService()
@@ -375,8 +381,193 @@ func printDeployPreview(bundle *render.Bundle) {
 	}
 }
 
+// deployFromFile handles deployment from a specific config file
+func deployFromFile(cmd *cobra.Command, configFile, env, namespace, kubeContext string, dryRun, noWait bool, timeout time.Duration, ciMode bool, outputFormat string, timer *output.Timer) error {
+	result := &output.DeployResult{Success: false}
+
+	finalize := func(err error) error {
+		result.DurationMs = timer.ElapsedMs()
+		if err != nil {
+			result.Error = err.Error()
+		}
+		if outputFormat == "json" {
+			output.NewWriter(os.Stdout, outputFormat, ciMode).WriteDeployResult(result)
+			if !result.Success {
+				os.Exit(1)
+			}
+			return nil
+		}
+		return err
+	}
+
+	loader := config.NewLoader(".")
+	cfg, err := loader.LoadFile(configFile)
+	if err != nil {
+		return finalize(fmt.Errorf("failed to load %s: %w", configFile, err))
+	}
+
+	// Validate with warnings
+	warnings, err := config.ValidateWithWarnings(cfg)
+	if err != nil {
+		return finalize(fmt.Errorf("validation failed: %w", err))
+	}
+	if !ciMode && outputFormat != "json" {
+		for _, w := range warnings {
+			fmt.Fprintf(os.Stderr, "Warning: %s\n", w)
+		}
+	}
+
+	appName := cfg.Metadata.Name
+	result.App = appName
+
+	// Apply environment overlay
+	if env != "" {
+		cfg = cfg.ForEnvironment(env)
+	}
+
+	// Override namespace if specified
+	if namespace != "" {
+		cfg.Metadata.Namespace = namespace
+	}
+	targetNamespace := cfg.Metadata.Namespace
+
+	// Check if we have an image
+	if cfg.Spec.Image == "" && cfg.Spec.Build == nil {
+		return finalize(fmt.Errorf("no image specified in %s\n\n"+
+			"Choose one:\n"+
+			"  kbox up      → Build from Dockerfile + deploy (for development)\n"+
+			"  kbox deploy  → Deploy pre-built image (add 'image:' to kbox.yaml)", configFile))
+	}
+
+	// If only build config, use a placeholder image
+	if cfg.Spec.Image == "" && cfg.Spec.Build != nil {
+		cfg.Spec.Image = fmt.Sprintf("%s:latest", cfg.Metadata.Name)
+	}
+
+	// Render
+	renderer := render.New(cfg)
+	bundle, err := renderer.Render()
+	if err != nil {
+		return finalize(fmt.Errorf("failed to render: %w", err))
+	}
+
+	// Dry run - show what would be applied
+	if dryRun {
+		if outputFormat == "json" {
+			return bundle.ToJSON(os.Stdout)
+		}
+		fmt.Println("Dry run - would deploy the following resources:")
+		fmt.Println()
+		printDeployPreview(bundle)
+		fmt.Println()
+		fmt.Println("Run without --dry-run to apply these resources.")
+		return nil
+	}
+
+	// Connect to cluster
+	client, err := k8s.NewClient(k8s.ClientOptions{
+		Context:   kubeContext,
+		Namespace: namespace,
+	})
+	if err != nil {
+		return finalize(fmt.Errorf("failed to connect to cluster: %w\n  → Run 'kbox doctor' to diagnose connection issues", err))
+	}
+
+	result.Context = client.Context
+	targetNS := targetNamespace
+	if targetNS == "" {
+		targetNS = client.Namespace
+	}
+	result.Namespace = targetNS
+
+	// Print header
+	if !ciMode || outputFormat != "json" {
+		fmt.Printf("Deploying %s to %s (context: %s)\n", appName, targetNS, client.Context)
+		if env != "" {
+			fmt.Printf("Environment: %s\n", env)
+		}
+		fmt.Println()
+	}
+
+	// Determine output writer for apply engine
+	var applyOut io.Writer = os.Stdout
+	if ciMode {
+		applyOut = io.Discard
+	}
+
+	// Apply
+	engine := apply.NewEngine(client.Clientset, applyOut)
+	if timeout > 0 {
+		engine.SetTimeout(timeout)
+	}
+	applyResult, err := engine.Apply(cmd.Context(), bundle)
+	if err != nil {
+		return finalize(err)
+	}
+
+	// Build resource results
+	for _, name := range applyResult.Created {
+		result.Resources = append(result.Resources, output.ResourceResult{
+			Kind:   extractKind(name),
+			Name:   extractName(name),
+			Action: "created",
+		})
+	}
+	for _, name := range applyResult.Updated {
+		result.Resources = append(result.Resources, output.ResourceResult{
+			Kind:   extractKind(name),
+			Name:   extractName(name),
+			Action: "updated",
+		})
+	}
+
+	// Check for errors
+	if len(applyResult.Errors) > 0 {
+		if !ciMode {
+			fmt.Fprintln(os.Stderr, "\nErrors:")
+			for _, e := range applyResult.Errors {
+				fmt.Fprintf(os.Stderr, "  - %v\n", e)
+			}
+		}
+		return finalize(fmt.Errorf("deploy completed with %d errors", len(applyResult.Errors)))
+	}
+
+	// Wait for rollout
+	if !noWait && bundle.Deployment != nil {
+		if err := engine.WaitForRollout(cmd.Context(), targetNS, bundle.Deployment.Name); err != nil {
+			return finalize(fmt.Errorf("rollout failed: %w\n  → Run 'kbox logs' to see pod logs\n  → Run 'kbox status' to check deployment state", err))
+		}
+	}
+
+	// Save release to history
+	store := release.NewStore(client.Clientset, targetNS, appName)
+	revision, err := store.Save(cmd.Context(), cfg)
+	if err != nil {
+		if !ciMode {
+			fmt.Fprintf(os.Stderr, "Warning: failed to save release history: %v\n", err)
+		}
+	}
+	result.Revision = revision
+
+	// Mark success
+	result.Success = true
+
+	// Summary
+	if outputFormat != "json" {
+		fmt.Println()
+		fmt.Printf("Deploy complete: %d created, %d updated\n",
+			len(applyResult.Created), len(applyResult.Updated))
+		if result.Revision > 0 {
+			fmt.Printf("Release %s saved (rollback available)\n", release.FormatRevision(result.Revision))
+		}
+	}
+
+	return finalize(nil)
+}
+
 func init() {
 	deployCmd.Flags().StringP("env", "e", "", "Environment overlay to apply")
+	deployCmd.Flags().StringP("file", "f", "", "Path to kbox.yaml (default: ./kbox.yaml)")
 	deployCmd.Flags().Bool("dry-run", false, "Show what would be deployed without applying")
 	deployCmd.Flags().Bool("no-wait", false, "Don't wait for rollout to complete")
 	deployCmd.Flags().Duration("timeout", 5*time.Minute, "Timeout for rollout completion (e.g., 10m, 30s)")
