@@ -130,7 +130,7 @@ func execEphemeral(ctx context.Context, client *kubernetes.Clientset, config *re
 	ec := corev1.EphemeralContainer{
 		EphemeralContainerCommon: corev1.EphemeralContainerCommon{
 			Name:  ephemeralName,
-			Image: "busybox:latest", // Small debug image
+			Image: "busybox:1.36.1", // Small debug image
 			Command: []string{"/bin/sh"},
 			Stdin:           true,
 			TTY:             opts.TTY,

@@ -2,7 +2,9 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -210,20 +212,35 @@ Use this before 'kbox deploy' to verify what will happen.`,
 				}
 			}
 
-			// Print changes
+			// Check if there are changes
 			hasChanges := false
+			for _, c := range changes {
+				if c.Action == "create" || c.Action == "update" || c.Action == "delete" {
+					hasChanges = true
+					break
+				}
+			}
+
+			// JSON output
+			outputFormat := GetOutputFormat(cmd)
+			if outputFormat == "json" {
+				return json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
+					"success":    true,
+					"hasChanges": hasChanges,
+					"changes":    changes,
+				})
+			}
+
+			// Print changes
 			for _, c := range changes {
 				symbol := " "
 				switch c.Action {
 				case "create":
 					symbol = "+"
-					hasChanges = true
 				case "update":
 					symbol = "~"
-					hasChanges = true
 				case "delete":
 					symbol = "-"
-					hasChanges = true
 				}
 
 				fmt.Printf(" %s %s/%s", symbol, c.Kind, c.Name)
@@ -262,11 +279,11 @@ func init() {
 }
 
 type changeInfo struct {
-	Kind    string
-	Name    string
-	Action  string
-	Detail  string
-	Details []string
+	Kind    string   `json:"kind"`
+	Name    string   `json:"name"`
+	Action  string   `json:"action"`
+	Detail  string   `json:"detail,omitempty"`
+	Details []string `json:"details,omitempty"`
 }
 
 func configMapChanged(existing, new map[string]string) bool {

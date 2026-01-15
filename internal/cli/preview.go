@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"text/tabwriter"
 	"time"
@@ -122,10 +123,11 @@ func runPreviewCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Apply
-	engine := apply.NewEngine(client.Clientset, os.Stdout)
-	if ciMode && outputFormat == "json" {
-		engine = apply.NewEngine(client.Clientset, nil)
+	var applyOut io.Writer = os.Stdout
+	if ciMode {
+		applyOut = io.Discard // Suppress apply output in CI mode
 	}
+	engine := apply.NewEngine(client.Clientset, applyOut)
 
 	_, err = engine.Apply(cmd.Context(), bundle)
 	if err != nil {

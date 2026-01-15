@@ -200,15 +200,15 @@ func TestApplyOrderInBundle(t *testing.T) {
 
 	objects := bundle.AllObjects()
 
-	// Order should be: ConfigMaps -> Services -> Deployments
-	// (Namespace would be first if present)
-	if len(objects) < 3 {
-		t.Fatalf("expected at least 3 objects, got %d", len(objects))
+	// Order should be: ServiceAccount -> ConfigMaps -> Services -> Deployments
+	// (Namespace would be first if present, ServiceAccount second)
+	if len(objects) < 4 {
+		t.Fatalf("expected at least 4 objects, got %d", len(objects))
 	}
 
-	// First should be ConfigMap
-	if objects[0].GetObjectKind().GroupVersionKind().Kind != "ConfigMap" {
-		t.Errorf("first object should be ConfigMap, got %s",
+	// First should be ServiceAccount (security requirement)
+	if objects[0].GetObjectKind().GroupVersionKind().Kind != "ServiceAccount" {
+		t.Errorf("first object should be ServiceAccount, got %s",
 			objects[0].GetObjectKind().GroupVersionKind().Kind)
 	}
 

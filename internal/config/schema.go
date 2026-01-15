@@ -71,6 +71,12 @@ type AppSpec struct {
 
 	// Jobs for one-off tasks and scheduled jobs (CronJobs)
 	Jobs []JobConfig `yaml:"jobs,omitempty" json:"jobs,omitempty"`
+
+	// Autoscaling configuration for HorizontalPodAutoscaler
+	Autoscaling *AutoscalingConfig `yaml:"autoscaling,omitempty" json:"autoscaling,omitempty"`
+
+	// PDB configuration for PodDisruptionBudget
+	PDB *PDBConfig `yaml:"pdb,omitempty" json:"pdb,omitempty"`
 }
 
 // DependencyConfig defines a managed dependency like postgres or redis
@@ -131,6 +137,20 @@ type InitContainerConfig struct {
 
 	// Env variables for the init container
 	Env map[string]string `yaml:"env,omitempty" json:"env,omitempty"`
+}
+
+// AutoscalingConfig defines HPA settings
+type AutoscalingConfig struct {
+	Enabled              bool `yaml:"enabled" json:"enabled"`
+	MinReplicas          int  `yaml:"minReplicas,omitempty" json:"minReplicas,omitempty"`
+	MaxReplicas          int  `yaml:"maxReplicas" json:"maxReplicas"`
+	TargetCPUUtilization int  `yaml:"targetCPUUtilization,omitempty" json:"targetCPUUtilization,omitempty"`
+}
+
+// PDBConfig defines PodDisruptionBudget settings
+type PDBConfig struct {
+	MinAvailable   string `yaml:"minAvailable,omitempty" json:"minAvailable,omitempty"`
+	MaxUnavailable string `yaml:"maxUnavailable,omitempty" json:"maxUnavailable,omitempty"`
 }
 
 // JobConfig defines a Job or CronJob

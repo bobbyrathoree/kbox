@@ -8,9 +8,11 @@ import (
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
+	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	policyv1 "k8s.io/api/policy/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -60,7 +62,22 @@ type ApplyResult struct {
 func (e *Engine) Apply(ctx context.Context, bundle *render.Bundle) (*ApplyResult, error) {
 	result := &ApplyResult{}
 
-	// Stage 0: PersistentVolumeClaims (storage before anything else)
+	// Stage 0: ServiceAccount (must exist before workloads that reference it)
+	if bundle.ServiceAccount != nil {
+		created, err := e.applyServiceAccount(ctx, bundle.ServiceAccount)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Errorf("serviceaccount %s: %w", bundle.ServiceAccount.Name, err))
+		} else {
+			if created {
+				result.Created = append(result.Created, fmt.Sprintf("ServiceAccount/%s", bundle.ServiceAccount.Name))
+			} else {
+				result.Updated = append(result.Updated, fmt.Sprintf("ServiceAccount/%s", bundle.ServiceAccount.Name))
+			}
+			fmt.Fprintf(e.out, "  ✓ ServiceAccount/%s\n", bundle.ServiceAccount.Name)
+		}
+	}
+
+	// Stage 0.5: PersistentVolumeClaims (storage before anything else)
 	for _, pvc := range bundle.PersistentVolumeClaims {
 		created, err := e.applyPVC(ctx, pvc)
 		if err != nil {
@@ -194,6 +211,51 @@ func (e *Engine) Apply(ctx context.Context, bundle *render.Bundle) (*ApplyResult
 		fmt.Fprintf(e.out, "  ✓ CronJob/%s\n", cronJob.Name)
 	}
 
+	// Stage 7: HPA (after Deployment)
+	if bundle.HPA != nil {
+		created, err := e.applyHPA(ctx, bundle.HPA)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Errorf("hpa %s: %w", bundle.HPA.Name, err))
+		} else {
+			if created {
+				result.Created = append(result.Created, fmt.Sprintf("HorizontalPodAutoscaler/%s", bundle.HPA.Name))
+			} else {
+				result.Updated = append(result.Updated, fmt.Sprintf("HorizontalPodAutoscaler/%s", bundle.HPA.Name))
+			}
+			fmt.Fprintf(e.out, "  ✓ HorizontalPodAutoscaler/%s\n", bundle.HPA.Name)
+		}
+	}
+
+	// Stage 8: PDB (after Deployment)
+	if bundle.PDB != nil {
+		created, err := e.applyPDB(ctx, bundle.PDB)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Errorf("pdb %s: %w", bundle.PDB.Name, err))
+		} else {
+			if created {
+				result.Created = append(result.Created, fmt.Sprintf("PodDisruptionBudget/%s", bundle.PDB.Name))
+			} else {
+				result.Updated = append(result.Updated, fmt.Sprintf("PodDisruptionBudget/%s", bundle.PDB.Name))
+			}
+			fmt.Fprintf(e.out, "  ✓ PodDisruptionBudget/%s\n", bundle.PDB.Name)
+		}
+	}
+
+	// Stage 9: NetworkPolicies
+	for _, np := range bundle.NetworkPolicies {
+		created, err := e.applyNetworkPolicy(ctx, np)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Errorf("networkpolicy %s: %w", np.Name, err))
+			continue
+		}
+		if created {
+			result.Created = append(result.Created, fmt.Sprintf("NetworkPolicy/%s", np.Name))
+		} else {
+			result.Updated = append(result.Updated, fmt.Sprintf("NetworkPolicy/%s", np.Name))
+		}
+		fmt.Fprintf(e.out, "  ✓ NetworkPolicy/%s\n", np.Name)
+	}
+
 	return result, nil
 }
 
@@ -257,6 +319,10 @@ func (e *Engine) WaitForRollout(ctx context.Context, namespace, name string) err
 	}
 }
 
+func (e *Engine) applyServiceAccount(ctx context.Context, sa *corev1.ServiceAccount) (bool, error) {
+	return e.applyObject(ctx, sa, "serviceaccounts", sa.Namespace, sa.Name)
+}
+
 func (e *Engine) applyPVC(ctx context.Context, pvc *corev1.PersistentVolumeClaim) (bool, error) {
 	return e.applyObject(ctx, pvc, "persistentvolumeclaims", pvc.Namespace, pvc.Name)
 }
@@ -285,12 +351,24 @@ func (e *Engine) applyIngress(ctx context.Context, ing *networkingv1.Ingress) (b
 	return e.applyObject(ctx, ing, "ingresses", ing.Namespace, ing.Name)
 }
 
+func (e *Engine) applyNetworkPolicy(ctx context.Context, np *networkingv1.NetworkPolicy) (bool, error) {
+	return e.applyObject(ctx, np, "networkpolicies", np.Namespace, np.Name)
+}
+
 func (e *Engine) applyJob(ctx context.Context, job *batchv1.Job) (bool, error) {
 	return e.applyObject(ctx, job, "jobs", job.Namespace, job.Name)
 }
 
 func (e *Engine) applyCronJob(ctx context.Context, cronJob *batchv1.CronJob) (bool, error) {
 	return e.applyObject(ctx, cronJob, "cronjobs", cronJob.Namespace, cronJob.Name)
+}
+
+func (e *Engine) applyHPA(ctx context.Context, hpa *autoscalingv2.HorizontalPodAutoscaler) (bool, error) {
+	return e.applyObject(ctx, hpa, "horizontalpodautoscalers", hpa.Namespace, hpa.Name)
+}
+
+func (e *Engine) applyPDB(ctx context.Context, pdb *policyv1.PodDisruptionBudget) (bool, error) {
+	return e.applyObject(ctx, pdb, "poddisruptionbudgets", pdb.Namespace, pdb.Name)
 }
 
 func (e *Engine) applyObject(ctx context.Context, obj runtime.Object, resource, namespace, name string) (bool, error) {
@@ -303,6 +381,9 @@ func (e *Engine) applyObject(ctx context.Context, obj runtime.Object, resource, 
 	// Check if object exists
 	var exists bool
 	switch resource {
+	case "serviceaccounts":
+		_, err = e.client.CoreV1().ServiceAccounts(namespace).Get(ctx, name, metav1.GetOptions{})
+		exists = err == nil
 	case "persistentvolumeclaims":
 		_, err = e.client.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, name, metav1.GetOptions{})
 		exists = err == nil
@@ -324,11 +405,20 @@ func (e *Engine) applyObject(ctx context.Context, obj runtime.Object, resource, 
 	case "ingresses":
 		_, err = e.client.NetworkingV1().Ingresses(namespace).Get(ctx, name, metav1.GetOptions{})
 		exists = err == nil
+	case "networkpolicies":
+		_, err = e.client.NetworkingV1().NetworkPolicies(namespace).Get(ctx, name, metav1.GetOptions{})
+		exists = err == nil
 	case "jobs":
 		_, err = e.client.BatchV1().Jobs(namespace).Get(ctx, name, metav1.GetOptions{})
 		exists = err == nil
 	case "cronjobs":
 		_, err = e.client.BatchV1().CronJobs(namespace).Get(ctx, name, metav1.GetOptions{})
+		exists = err == nil
+	case "horizontalpodautoscalers":
+		_, err = e.client.AutoscalingV2().HorizontalPodAutoscalers(namespace).Get(ctx, name, metav1.GetOptions{})
+		exists = err == nil
+	case "poddisruptionbudgets":
+		_, err = e.client.PolicyV1().PodDisruptionBudgets(namespace).Get(ctx, name, metav1.GetOptions{})
 		exists = err == nil
 	}
 
@@ -338,6 +428,8 @@ func (e *Engine) applyObject(ctx context.Context, obj runtime.Object, resource, 
 	}
 
 	switch resource {
+	case "serviceaccounts":
+		_, err = e.client.CoreV1().ServiceAccounts(namespace).Patch(ctx, name, types.ApplyPatchType, data, patchOpts)
 	case "persistentvolumeclaims":
 		_, err = e.client.CoreV1().PersistentVolumeClaims(namespace).Patch(ctx, name, types.ApplyPatchType, data, patchOpts)
 	case "configmaps":
@@ -352,10 +444,16 @@ func (e *Engine) applyObject(ctx context.Context, obj runtime.Object, resource, 
 		_, err = e.client.AppsV1().StatefulSets(namespace).Patch(ctx, name, types.ApplyPatchType, data, patchOpts)
 	case "ingresses":
 		_, err = e.client.NetworkingV1().Ingresses(namespace).Patch(ctx, name, types.ApplyPatchType, data, patchOpts)
+	case "networkpolicies":
+		_, err = e.client.NetworkingV1().NetworkPolicies(namespace).Patch(ctx, name, types.ApplyPatchType, data, patchOpts)
 	case "jobs":
 		_, err = e.client.BatchV1().Jobs(namespace).Patch(ctx, name, types.ApplyPatchType, data, patchOpts)
 	case "cronjobs":
 		_, err = e.client.BatchV1().CronJobs(namespace).Patch(ctx, name, types.ApplyPatchType, data, patchOpts)
+	case "horizontalpodautoscalers":
+		_, err = e.client.AutoscalingV2().HorizontalPodAutoscalers(namespace).Patch(ctx, name, types.ApplyPatchType, data, patchOpts)
+	case "poddisruptionbudgets":
+		_, err = e.client.PolicyV1().PodDisruptionBudgets(namespace).Patch(ctx, name, types.ApplyPatchType, data, patchOpts)
 	default:
 		return false, fmt.Errorf("unknown resource type: %s", resource)
 	}

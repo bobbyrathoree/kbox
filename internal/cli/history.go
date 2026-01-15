@@ -2,7 +2,9 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -73,9 +75,27 @@ The history shows the revision number, timestamp, and image deployed.`,
 				return fmt.Errorf("failed to get release history: %w", err)
 			}
 
-			if len(releases) == 0 {
+			if releases == nil || len(releases) == 0 {
+				outputFormat := GetOutputFormat(cmd)
+				if outputFormat == "json" {
+					return json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
+						"success":  true,
+						"app":      appName,
+						"releases": []interface{}{},
+					})
+				}
 				fmt.Printf("No releases found for %s in namespace %s\n", appName, namespace)
+				fmt.Printf("\nHint: If you deployed to a different namespace, use: kbox history -n <namespace>\n")
 				return nil
+			}
+
+			outputFormat := GetOutputFormat(cmd)
+			if outputFormat == "json" {
+				return json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
+					"success":  true,
+					"app":      appName,
+					"releases": releases,
+				})
 			}
 
 			// Print header

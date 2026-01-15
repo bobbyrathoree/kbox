@@ -4,9 +4,11 @@ import (
 	"github.com/bobbyrathoree/kbox/internal/config"
 	"github.com/bobbyrathoree/kbox/internal/secrets"
 	appsv1 "k8s.io/api/apps/v1"
+	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	policyv1 "k8s.io/api/policy/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
@@ -14,6 +16,7 @@ import (
 type Bundle struct {
 	// Objects in apply order
 	Namespace              *corev1.Namespace
+	ServiceAccount         *corev1.ServiceAccount
 	PersistentVolumeClaims []*corev1.PersistentVolumeClaim
 	ConfigMaps             []*corev1.ConfigMap
 	Secrets                []*corev1.Secret
@@ -23,6 +26,9 @@ type Bundle struct {
 	Jobs                   []*batchv1.Job
 	CronJobs               []*batchv1.CronJob
 	Ingresses              []*networkingv1.Ingress
+	NetworkPolicies        []*networkingv1.NetworkPolicy
+	HPA                    *autoscalingv2.HorizontalPodAutoscaler
+	PDB                    *policyv1.PodDisruptionBudget
 	// Deployment is kept for backward compatibility (points to first deployment)
 	Deployment *appsv1.Deployment
 }
@@ -34,6 +40,10 @@ func (b *Bundle) AllObjects() []runtime.Object {
 
 	if b.Namespace != nil {
 		objects = append(objects, b.Namespace)
+	}
+	// ServiceAccount before workloads that reference it
+	if b.ServiceAccount != nil {
+		objects = append(objects, b.ServiceAccount)
 	}
 	// PVCs before anything that might use them
 	for _, pvc := range b.PersistentVolumeClaims {
@@ -72,6 +82,18 @@ func (b *Bundle) AllObjects() []runtime.Object {
 	for _, ing := range b.Ingresses {
 		objects = append(objects, ing)
 	}
+	// NetworkPolicies
+	for _, np := range b.NetworkPolicies {
+		objects = append(objects, np)
+	}
+	// HPA after Deployment (depends on Deployment)
+	if b.HPA != nil {
+		objects = append(objects, b.HPA)
+	}
+	// PDB after Deployment (depends on Deployment)
+	if b.PDB != nil {
+		objects = append(objects, b.PDB)
+	}
 
 	return objects
 }
@@ -89,6 +111,9 @@ func New(cfg *config.AppConfig) *Renderer {
 // Render renders all Kubernetes objects from the config
 func (r *Renderer) Render() (*Bundle, error) {
 	bundle := &Bundle{}
+
+	// Render ServiceAccount for security isolation
+	bundle.ServiceAccount = r.RenderServiceAccount()
 
 	// Render dependencies first (databases, caches)
 	var depEnvVars map[string]string
@@ -205,6 +230,16 @@ func (r *Renderer) Render() (*Bundle, error) {
 		bundle.Jobs = jobs
 		bundle.CronJobs = cronJobs
 	}
+
+	// Render NetworkPolicy
+	networkPolicy := r.RenderNetworkPolicy()
+	bundle.NetworkPolicies = append(bundle.NetworkPolicies, networkPolicy)
+
+	// Render HPA if autoscaling is enabled
+	bundle.HPA = r.RenderHPA()
+
+	// Render PDB if configured
+	bundle.PDB = r.RenderPDB()
 
 	return bundle, nil
 }

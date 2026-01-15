@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 
@@ -50,6 +51,15 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	status, err := debug.GetAppStatus(cmd.Context(), client.Clientset, ns, appName)
 	if err != nil {
 		return err
+	}
+
+	outputFormat := GetOutputFormat(cmd)
+	if outputFormat == "json" {
+		return json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
+			"success": true,
+			"app":     appName,
+			"status":  status,
+		})
 	}
 
 	debug.PrintStatus(os.Stdout, status)

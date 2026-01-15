@@ -188,8 +188,8 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 
 	// Determine output writer for apply engine
 	var applyOut io.Writer = os.Stdout
-	if ciMode && outputFormat == "json" {
-		applyOut = io.Discard // Suppress apply output in JSON mode
+	if ciMode {
+		applyOut = io.Discard // Suppress apply output in CI mode
 	}
 
 	// Apply

@@ -3,6 +3,7 @@ package cli
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -36,6 +37,7 @@ func runDown(cmd *cobra.Command, args []string) error {
 	force, _ := cmd.Flags().GetBool("force")
 	all, _ := cmd.Flags().GetBool("all")
 	ciMode := IsCIMode(cmd)
+	outputFormat := GetOutputFormat(cmd)
 
 	// Load config to get app name
 	loader := config.NewLoader(".")
@@ -297,6 +299,22 @@ func runDown(cmd *cobra.Command, args []string) error {
 				errors = append(errors, fmt.Errorf("Secret/%s: %w", secret.Name, err))
 			}
 		}
+	}
+
+	// JSON output
+	if outputFormat == "json" {
+		errorStrings := make([]string, len(errors))
+		for i, e := range errors {
+			errorStrings[i] = e.Error()
+		}
+		result := map[string]interface{}{
+			"success": len(errors) == 0,
+			"deleted": deleted,
+		}
+		if len(errors) > 0 {
+			result["errors"] = errorStrings
+		}
+		return json.NewEncoder(os.Stdout).Encode(result)
 	}
 
 	// Summary

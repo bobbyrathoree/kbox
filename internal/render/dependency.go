@@ -143,7 +143,7 @@ func (r *Renderer) RenderDependency(dep config.DependencyConfig) (*DependencyRes
 				MountPath: getDataPath(dep.Type),
 			},
 		},
-		SecurityContext: defaultContainerSecurityContext(),
+		SecurityContext: dependencySecurityContext(dep.Type),
 	}
 
 	statefulSet := &appsv1.StatefulSet{
@@ -291,6 +291,24 @@ func (r *Renderer) RenderAllDependencies() ([]*appsv1.StatefulSet, []*corev1.Ser
 	}
 
 	return statefulSets, services, secrets, envVars, secretEnvRefs, nil
+}
+
+// dependencySecurityContext returns security context appropriate for dependencies
+// Databases need writable filesystem, so readOnlyRootFilesystem is disabled for them
+func dependencySecurityContext(depType string) *corev1.SecurityContext {
+	allowPrivilegeEscalation := false
+	// Databases need writable filesystem
+	readOnly := true
+	if depType == "postgres" || depType == "mysql" || depType == "mongodb" || depType == "redis" {
+		readOnly = false
+	}
+	return &corev1.SecurityContext{
+		AllowPrivilegeEscalation: &allowPrivilegeEscalation,
+		ReadOnlyRootFilesystem:   &readOnly,
+		Capabilities: &corev1.Capabilities{
+			Drop: []corev1.Capability{"ALL"},
+		},
+	}
 }
 
 // getDataPath returns the data directory path for a dependency type

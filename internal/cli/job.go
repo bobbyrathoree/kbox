@@ -298,6 +298,7 @@ func runJobLogs(cmd *cobra.Command, args []string) error {
 	kubeContext, _ := cmd.Flags().GetString("context")
 	namespace, _ := cmd.Flags().GetString("namespace")
 	follow, _ := cmd.Flags().GetBool("follow")
+	outputFormat := GetOutputFormat(cmd)
 
 	// Load config
 	loader := config.NewLoader(".")
@@ -366,7 +367,27 @@ func runJobLogs(cmd *cobra.Command, args []string) error {
 	}
 	defer stream.Close()
 
-	// Stream logs to stdout
+	// Stream logs to stdout (or JSON)
+	if outputFormat == "json" {
+		var logs []byte
+		buf := make([]byte, 4096)
+		for {
+			n, err := stream.Read(buf)
+			if n > 0 {
+				logs = append(logs, buf[:n]...)
+			}
+			if err != nil {
+				break
+			}
+		}
+		return json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
+			"success": true,
+			"job":     jobName,
+			"pod":     pod.Name,
+			"logs":    string(logs),
+		})
+	}
+
 	buf := make([]byte, 4096)
 	for {
 		n, err := stream.Read(buf)

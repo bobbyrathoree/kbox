@@ -132,10 +132,11 @@ func (r *Renderer) RenderDeployment() (*appsv1.Deployment, error) {
 					Labels: r.Labels(),
 				},
 				Spec: corev1.PodSpec{
-					SecurityContext: defaultPodSecurityContext(),
-					InitContainers:  r.renderInitContainers(),
-					Containers:      []corev1.Container{container},
-					Volumes:         r.renderPodVolumes(),
+					ServiceAccountName: r.config.Metadata.Name,
+					SecurityContext:    defaultPodSecurityContext(),
+					InitContainers:     r.renderInitContainers(),
+					Containers:         []corev1.Container{container},
+					Volumes:            r.renderPodVolumes(),
 				},
 			},
 			Strategy: appsv1.DeploymentStrategy{
