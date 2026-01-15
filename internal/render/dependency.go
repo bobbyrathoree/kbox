@@ -232,35 +232,33 @@ func (r *Renderer) RenderDependency(dep config.DependencyConfig) (*DependencyRes
 		}
 	}
 
-	// Add resource limits if specified
+	// Add resource limits - use defaults if not specified
+	depResources := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceMemory: resource.MustParse("256Mi"),
+			corev1.ResourceCPU:    resource.MustParse("100m"),
+		},
+		Limits: corev1.ResourceList{
+			corev1.ResourceMemory: resource.MustParse("512Mi"),
+			corev1.ResourceCPU:    resource.MustParse("500m"),
+		},
+	}
+	// Override with user-specified values
 	if dep.Resources != nil {
-		resources := corev1.ResourceRequirements{}
 		if dep.Resources.Memory != "" {
-			if resources.Requests == nil {
-				resources.Requests = corev1.ResourceList{}
-			}
-			resources.Requests[corev1.ResourceMemory] = resource.MustParse(dep.Resources.Memory)
+			depResources.Requests[corev1.ResourceMemory] = resource.MustParse(dep.Resources.Memory)
 		}
 		if dep.Resources.CPU != "" {
-			if resources.Requests == nil {
-				resources.Requests = corev1.ResourceList{}
-			}
-			resources.Requests[corev1.ResourceCPU] = resource.MustParse(dep.Resources.CPU)
+			depResources.Requests[corev1.ResourceCPU] = resource.MustParse(dep.Resources.CPU)
 		}
 		if dep.Resources.MemoryLimit != "" {
-			if resources.Limits == nil {
-				resources.Limits = corev1.ResourceList{}
-			}
-			resources.Limits[corev1.ResourceMemory] = resource.MustParse(dep.Resources.MemoryLimit)
+			depResources.Limits[corev1.ResourceMemory] = resource.MustParse(dep.Resources.MemoryLimit)
 		}
 		if dep.Resources.CPULimit != "" {
-			if resources.Limits == nil {
-				resources.Limits = corev1.ResourceList{}
-			}
-			resources.Limits[corev1.ResourceCPU] = resource.MustParse(dep.Resources.CPULimit)
+			depResources.Limits[corev1.ResourceCPU] = resource.MustParse(dep.Resources.CPULimit)
 		}
-		statefulSet.Spec.Template.Spec.Containers[0].Resources = resources
 	}
+	statefulSet.Spec.Template.Spec.Containers[0].Resources = depResources
 
 	resources.StatefulSet = statefulSet
 

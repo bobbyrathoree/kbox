@@ -53,7 +53,7 @@ tmp/
 .env
 .env.*
 !.env.example
-secrets/
+/secrets/
 *.enc.yaml
 !*.enc.yaml.example
 
