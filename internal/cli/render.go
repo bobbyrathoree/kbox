@@ -27,8 +27,16 @@ Examples:
 func runRender(cmd *cobra.Command, args []string) error {
 	env, _ := cmd.Flags().GetString("env")
 	redact, _ := cmd.Flags().GetBool("redact")
+	configFile, _ := cmd.Flags().GetString("file")
+	outputFormat := GetOutputFormat(cmd)
 	ciMode := IsCIMode(cmd)
 
+	// If a specific file is provided, load it directly
+	if configFile != "" {
+		return renderFromFile(cmd, configFile, env, redact, outputFormat, ciMode)
+	}
+
+	// Use current directory
 	loader := config.NewLoader(".")
 
 	// Check if this is a multi-service config
@@ -86,6 +94,18 @@ func runRender(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("failed to load kbox.yaml: %w", err)
 		}
 
+		// Validate with warnings for security issues
+		warnings, err := config.ValidateWithWarnings(cfg)
+		if err != nil {
+			return fmt.Errorf("validation failed: %w", err)
+		}
+		// Print warnings to stderr (unless JSON output or CI mode suppresses them)
+		if !ciMode && outputFormat != "json" {
+			for _, w := range warnings {
+				fmt.Fprintf(os.Stderr, "Warning: %s\n", w)
+			}
+		}
+
 		// Apply environment overlay
 		if env != "" {
 			cfg = cfg.ForEnvironment(env)
@@ -120,10 +140,17 @@ func runRender(cmd *cobra.Command, args []string) error {
 		bundle = redactSecrets(bundle)
 	}
 
-	// Output YAML
-	if !ciMode {
+	// Output based on format
+	if !ciMode && outputFormat != "json" {
 		fmt.Fprintln(os.Stderr) // Blank line before YAML
 	}
+
+	// JSON output
+	if outputFormat == "json" {
+		return bundle.ToJSON(os.Stdout)
+	}
+
+	// Default YAML output
 	return bundle.ToYAML(os.Stdout)
 }
 
@@ -150,6 +177,59 @@ func redactSecrets(bundle *render.Bundle) *render.Bundle {
 		}
 	}
 	return bundle
+}
+
+// renderFromFile loads and renders a specific config file
+func renderFromFile(cmd *cobra.Command, configFile, env string, redact bool, outputFormat string, ciMode bool) error {
+	loader := config.NewLoader(".")
+
+	// Load config directly from file
+	cfg, err := loader.LoadFile(configFile)
+	if err != nil {
+		return fmt.Errorf("failed to load %s: %w", configFile, err)
+	}
+
+	// Validate with warnings for security issues
+	warnings, err := config.ValidateWithWarnings(cfg)
+	if err != nil {
+		return fmt.Errorf("validation failed: %w", err)
+	}
+	// Print warnings to stderr
+	if !ciMode && outputFormat != "json" {
+		for _, w := range warnings {
+			fmt.Fprintf(os.Stderr, "Warning: %s\n", w)
+		}
+	}
+
+	// Apply environment overlay
+	if env != "" {
+		cfg = cfg.ForEnvironment(env)
+		if !ciMode {
+			fmt.Fprintf(os.Stderr, "Using environment: %s\n", env)
+		}
+	}
+
+	// Render
+	renderer := render.New(cfg)
+	bundle, err := renderer.Render()
+	if err != nil {
+		return fmt.Errorf("failed to render: %w", err)
+	}
+
+	// Redact secrets if requested
+	if redact {
+		bundle = redactSecrets(bundle)
+	}
+
+	// Output
+	if !ciMode && outputFormat != "json" {
+		fmt.Fprintln(os.Stderr)
+	}
+
+	if outputFormat == "json" {
+		return bundle.ToJSON(os.Stdout)
+	}
+	return bundle.ToYAML(os.Stdout)
 }
 
 func init() {

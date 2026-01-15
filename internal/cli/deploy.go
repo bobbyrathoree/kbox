@@ -117,6 +117,18 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 			return finalize(fmt.Errorf("failed to load kbox.yaml: %w\n  → Run 'kbox init' to create one, or use 'kbox up' for zero-config deploy", err))
 		}
 
+		// Validate with warnings for security issues
+		warnings, err := config.ValidateWithWarnings(cfg)
+		if err != nil {
+			return finalize(fmt.Errorf("validation failed: %w", err))
+		}
+		// Print warnings to stderr (unless JSON output or CI mode suppresses them)
+		if !ciMode && outputFormat != "json" {
+			for _, w := range warnings {
+				fmt.Fprintf(os.Stderr, "Warning: %s\n", w)
+			}
+		}
+
 		appName = cfg.Metadata.Name
 		result.App = appName
 

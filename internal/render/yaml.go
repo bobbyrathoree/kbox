@@ -2,6 +2,7 @@ package render
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -46,4 +47,30 @@ func ObjectToYAML(obj runtime.Object) (string, error) {
 		return "", err
 	}
 	return buf.String(), nil
+}
+
+// ToJSON converts a bundle to JSON output (array of objects)
+func (b *Bundle) ToJSON(w io.Writer) error {
+	objects := b.AllObjects()
+
+	// Convert to JSON-friendly representation
+	var jsonObjects []map[string]interface{}
+	for _, obj := range objects {
+		// Marshal to JSON first, then unmarshal to get clean map
+		jsonBytes, err := json.Marshal(obj)
+		if err != nil {
+			return err
+		}
+		var objMap map[string]interface{}
+		if err := json.Unmarshal(jsonBytes, &objMap); err != nil {
+			return err
+		}
+		jsonObjects = append(jsonObjects, objMap)
+	}
+
+	encoder := json.NewEncoder(w)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(map[string]interface{}{
+		"objects": jsonObjects,
+	})
 }
