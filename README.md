@@ -1,17 +1,8 @@
-<div align="center">
+<p align="center">
+  <img src="assets/logo.svg" alt="kbox" width="450">
+</p>
 
-```
- ██╗  ██╗██████╗  ██████╗ ██╗  ██╗
- ██║ ██╔╝██╔══██╗██╔═══██╗╚██╗██╔╝
- █████╔╝ ██████╔╝██║   ██║ ╚███╔╝
- ██╔═██╗ ██╔══██╗██║   ██║ ██╔██╗
- ██║  ██╗██████╔╝╚██████╔╝██╔╝ ██╗
- ╚═╝  ╚═╝╚═════╝  ╚═════╝ ╚═╝  ╚═╝
-```
-
-**Kubernetes deployments for humans**
-
-</div>
+<h3 align="center">Kubernetes deployments for humans</h3>
 
 <p align="center">
   <a href="#installation">Installation</a> •
