@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.svg" alt="kbox" width="450">
+  <img src="assets/logo.png" alt="kbox" width="400">
 </p>
 
 <h3 align="center">Kubernetes deployments for humans</h3>
