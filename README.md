@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="assets/logo.png" alt="kbox" width="400">
+  <img src="assets/logo.png" alt="kbox" width="500">
 </p>
 
-<h3 align="center">Kubernetes deployments for humans</h3>
+<h3 align="center">Kubernetes that just works.</h3>
 
 <p align="center">
   <a href="#installation">Installation</a> •
