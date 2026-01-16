@@ -1,16 +1,17 @@
-<p align="center">
-  <pre>
-    ██╗  ██╗██████╗  ██████╗ ██╗  ██╗
-    ██║ ██╔╝██╔══██╗██╔═══██╗╚██╗██╔╝
-    █████╔╝ ██████╔╝██║   ██║ ╚███╔╝
-    ██╔═██╗ ██╔══██╗██║   ██║ ██╔██╗
-    ██║  ██╗██████╔╝╚██████╔╝██╔╝ ██╗
-    ╚═╝  ╚═╝╚═════╝  ╚═════╝ ╚═╝  ╚═╝
-  </pre>
-  <p align="center">
-    <strong>Kubernetes deployments for humans</strong>
-  </p>
-</p>
+<div align="center">
+
+```
+ ██╗  ██╗██████╗  ██████╗ ██╗  ██╗
+ ██║ ██╔╝██╔══██╗██╔═══██╗╚██╗██╔╝
+ █████╔╝ ██████╔╝██║   ██║ ╚███╔╝
+ ██╔═██╗ ██╔══██╗██║   ██║ ██╔██╗
+ ██║  ██╗██████╔╝╚██████╔╝██╔╝ ██╗
+ ╚═╝  ╚═╝╚═════╝  ╚═════╝ ╚═╝  ╚═╝
+```
+
+**Kubernetes deployments for humans**
+
+</div>
 
 <p align="center">
   <a href="#installation">Installation</a> •
@@ -56,21 +57,14 @@ And you get **secure, production-ready defaults** out of the box:
 
 ## Installation
 
-### Homebrew (macOS/Linux)
+### Build from Source
 
 ```bash
-brew install bobbyrathoree/tap/kbox
+git clone https://github.com/bobbyrathoree/kbox.git
+cd kbox
+go build -o kbox ./cmd/kbox
+sudo mv kbox /usr/local/bin/
 ```
-
-### Go Install
-
-```bash
-go install github.com/bobbyrathoree/kbox/cmd/kbox@latest
-```
-
-### Binary Download
-
-Download the latest release from [GitHub Releases](https://github.com/bobbyrathoree/kbox/releases).
 
 ### Verify Installation
 
