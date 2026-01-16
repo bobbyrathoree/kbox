@@ -77,6 +77,9 @@ type AppSpec struct {
 
 	// PDB configuration for PodDisruptionBudget
 	PDB *PDBConfig `yaml:"pdb,omitempty" json:"pdb,omitempty"`
+
+	// Metrics configuration for Prometheus ServiceMonitor
+	Metrics *MetricsConfig `yaml:"metrics,omitempty" json:"metrics,omitempty"`
 }
 
 // DependencyConfig defines a managed dependency like postgres or redis
@@ -151,6 +154,21 @@ type AutoscalingConfig struct {
 type PDBConfig struct {
 	MinAvailable   string `yaml:"minAvailable,omitempty" json:"minAvailable,omitempty"`
 	MaxUnavailable string `yaml:"maxUnavailable,omitempty" json:"maxUnavailable,omitempty"`
+}
+
+// MetricsConfig configures Prometheus metrics and ServiceMonitor generation
+type MetricsConfig struct {
+	// Enabled creates a ServiceMonitor for Prometheus scraping
+	Enabled bool `yaml:"enabled" json:"enabled"`
+
+	// Path for metrics endpoint (default: /metrics)
+	Path string `yaml:"path,omitempty" json:"path,omitempty"`
+
+	// Port name to scrape (default: "http", uses app's main port)
+	Port string `yaml:"port,omitempty" json:"port,omitempty"`
+
+	// Interval for Prometheus scraping (default: 30s)
+	Interval string `yaml:"interval,omitempty" json:"interval,omitempty"`
 }
 
 // JobConfig defines a Job or CronJob

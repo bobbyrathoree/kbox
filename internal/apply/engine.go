@@ -15,8 +15,11 @@ import (
 	policyv1 "k8s.io/api/policy/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 
 	"github.com/bobbyrathoree/kbox/internal/render"
@@ -32,9 +35,10 @@ const (
 
 // Engine handles applying Kubernetes resources
 type Engine struct {
-	client  *kubernetes.Clientset
-	out     io.Writer
-	timeout time.Duration
+	client        *kubernetes.Clientset
+	dynamicClient dynamic.Interface
+	out           io.Writer
+	timeout       time.Duration
 }
 
 // NewEngine creates a new apply engine
@@ -49,6 +53,11 @@ func NewEngine(client *kubernetes.Clientset, out io.Writer) *Engine {
 // SetTimeout sets the timeout for rollout operations
 func (e *Engine) SetTimeout(timeout time.Duration) {
 	e.timeout = timeout
+}
+
+// SetDynamicClient sets the dynamic client for CRD support
+func (e *Engine) SetDynamicClient(client dynamic.Interface) {
+	e.dynamicClient = client
 }
 
 // ApplyResult contains the result of an apply operation
@@ -257,6 +266,24 @@ func (e *Engine) Apply(ctx context.Context, bundle *render.Bundle) (*ApplyResult
 		fmt.Fprintf(e.out, "  ✓ NetworkPolicy/%s\n", np.Name)
 	}
 
+	// Stage 10: ServiceMonitors (optional Prometheus observability)
+	for _, sm := range bundle.ServiceMonitors {
+		name, _, _ := unstructured.NestedString(sm.Object, "metadata", "name")
+		created, err := e.applyServiceMonitor(ctx, sm)
+		if err != nil {
+			// ServiceMonitor is non-critical - CRD may not be installed
+			result.Errors = append(result.Errors, fmt.Errorf("servicemonitor %s: %w", name, err))
+			fmt.Fprintf(e.out, "  ⚠ ServiceMonitor/%s (skipped: %v)\n", name, err)
+			continue
+		}
+		if created {
+			result.Created = append(result.Created, fmt.Sprintf("ServiceMonitor/%s", name))
+		} else {
+			result.Updated = append(result.Updated, fmt.Sprintf("ServiceMonitor/%s", name))
+		}
+		fmt.Fprintf(e.out, "  ✓ ServiceMonitor/%s\n", name)
+	}
+
 	return result, nil
 }
 
@@ -370,6 +397,52 @@ func (e *Engine) applyHPA(ctx context.Context, hpa *autoscalingv2.HorizontalPodA
 
 func (e *Engine) applyPDB(ctx context.Context, pdb *policyv1.PodDisruptionBudget) (bool, error) {
 	return e.applyObject(ctx, pdb, "poddisruptionbudgets", pdb.Namespace, pdb.Name)
+}
+
+// applyServiceMonitor applies a ServiceMonitor CRD using the dynamic client
+func (e *Engine) applyServiceMonitor(ctx context.Context, sm *unstructured.Unstructured) (bool, error) {
+	if e.dynamicClient == nil {
+		return false, fmt.Errorf("dynamic client not configured (ServiceMonitor CRD support requires dynamic client)")
+	}
+
+	namespace, _, _ := unstructured.NestedString(sm.Object, "metadata", "namespace")
+	name, _, _ := unstructured.NestedString(sm.Object, "metadata", "name")
+
+	// ServiceMonitor GVR for prometheus-operator
+	gvr := schema.GroupVersionResource{
+		Group:    "monitoring.coreos.com",
+		Version:  "v1",
+		Resource: "servicemonitors",
+	}
+
+	// Check if ServiceMonitor CRD exists
+	_, err := e.dynamicClient.Resource(gvr).Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
+	exists := err == nil
+	if err != nil && !errors.IsNotFound(err) {
+		// CRD might not be installed
+		if errors.IsNotFound(err) {
+			return false, fmt.Errorf("ServiceMonitor CRD not installed (prometheus-operator required)")
+		}
+	}
+
+	// Apply using SSA with Force=true
+	forceTrue := true
+	patchOpts := metav1.PatchOptions{
+		FieldManager: FieldManager,
+		Force:        &forceTrue,
+	}
+
+	data, err := json.Marshal(sm.Object)
+	if err != nil {
+		return false, fmt.Errorf("failed to marshal ServiceMonitor: %w", err)
+	}
+
+	_, err = e.dynamicClient.Resource(gvr).Namespace(namespace).Patch(ctx, name, types.ApplyPatchType, data, patchOpts)
+	if err != nil {
+		return false, err
+	}
+
+	return !exists, nil
 }
 
 func (e *Engine) applyObject(ctx context.Context, obj runtime.Object, resource, namespace, name string) (bool, error) {

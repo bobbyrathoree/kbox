@@ -2,11 +2,9 @@ package cli
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
-	"sigs.k8s.io/yaml"
 
 	"github.com/bobbyrathoree/kbox/internal/config"
 	"github.com/bobbyrathoree/kbox/internal/dependencies"
@@ -50,41 +48,38 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("unsupported dependency: %s\n  → Supported: %v", depType, dependencies.SupportedTypes())
 	}
 
-	// Load existing config
+	// Find config file path
 	loader := config.NewLoader(".")
-	cfg, err := loader.Load()
+	configPath, err := loader.FindConfigFile()
 	if err != nil {
-		return fmt.Errorf("failed to load kbox.yaml: %w\n  → Run 'kbox init' to create one first", err)
+		return fmt.Errorf("failed to find kbox.yaml: %w\n  → Run 'kbox init' to create one first", err)
 	}
+
+	// Load YAML preserving comments
+	node, err := config.LoadYAMLWithComments(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to load %s: %w", configPath, err)
+	}
+
+	// Navigate to spec.dependencies (create if needed)
+	root := config.GetRootDocument(node)
+	depsNode := config.EnsureDependenciesNode(root)
 
 	// Check if dependency already exists
-	for _, dep := range cfg.Spec.Dependencies {
-		if dep.Type == depType {
-			return fmt.Errorf("%s is already configured\n  → Edit kbox.yaml to modify or use 'kbox remove %s' first", depType, depType)
-		}
+	if config.SequenceContains(depsNode, "type", depType) {
+		return fmt.Errorf("%s is already configured\n  → Edit kbox.yaml to modify or use 'kbox remove %s' first", depType, depType)
 	}
 
-	// Add dependency
-	newDep := config.DependencyConfig{
+	// Create and add new dependency node
+	newDep := &config.DependencyConfig{
 		Type:    depType,
 		Version: version,
 		Storage: storage,
 	}
-	cfg.Spec.Dependencies = append(cfg.Spec.Dependencies, newDep)
+	config.AddToSequence(depsNode, config.DependencyToNode(newDep))
 
-	// Find and update kbox.yaml
-	configPath, err := loader.FindConfigFile()
-	if err != nil {
-		return err
-	}
-
-	// Marshal and write
-	yamlBytes, err := yaml.Marshal(cfg)
-	if err != nil {
-		return fmt.Errorf("failed to generate YAML: %w", err)
-	}
-
-	if err := os.WriteFile(configPath, yamlBytes, 0644); err != nil {
+	// Save YAML preserving comments
+	if err := config.SaveYAMLWithComments(configPath, node); err != nil {
 		return fmt.Errorf("failed to write %s: %w", configPath, err)
 	}
 
@@ -136,51 +131,53 @@ Examples:
 func runRemove(cmd *cobra.Command, args []string) error {
 	depType := strings.ToLower(args[0])
 
-	// Load existing config
+	// Find config file path
 	loader := config.NewLoader(".")
-	cfg, err := loader.Load()
+	configPath, err := loader.FindConfigFile()
 	if err != nil {
-		return fmt.Errorf("failed to load kbox.yaml: %w", err)
+		return fmt.Errorf("failed to find kbox.yaml: %w", err)
 	}
 
-	// Find and remove dependency
-	found := false
-	newDeps := make([]config.DependencyConfig, 0, len(cfg.Spec.Dependencies))
-	for _, dep := range cfg.Spec.Dependencies {
-		if dep.Type == depType {
-			found = true
-			continue
-		}
-		newDeps = append(newDeps, dep)
+	// Load YAML preserving comments
+	node, err := config.LoadYAMLWithComments(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to load %s: %w", configPath, err)
 	}
 
-	if !found {
+	// Navigate to spec.dependencies
+	root := config.GetRootDocument(node)
+	specNode := config.FindMapKey(root, "spec")
+	if specNode == nil {
 		return fmt.Errorf("%s is not configured as a dependency", depType)
 	}
 
-	cfg.Spec.Dependencies = newDeps
-
-	// Find and update kbox.yaml
-	configPath, err := loader.FindConfigFile()
-	if err != nil {
-		return err
+	depsNode := config.FindMapKey(specNode, "dependencies")
+	if depsNode == nil {
+		return fmt.Errorf("%s is not configured as a dependency", depType)
 	}
 
-	// Marshal and write
-	yamlBytes, err := yaml.Marshal(cfg)
-	if err != nil {
-		return fmt.Errorf("failed to generate YAML: %w", err)
+	// Remove the dependency
+	if !config.RemoveFromSequence(depsNode, "type", depType) {
+		return fmt.Errorf("%s is not configured as a dependency", depType)
 	}
 
-	if err := os.WriteFile(configPath, yamlBytes, 0644); err != nil {
+	// Save YAML preserving comments
+	if err := config.SaveYAMLWithComments(configPath, node); err != nil {
 		return fmt.Errorf("failed to write %s: %w", configPath, err)
+	}
+
+	// Load config to get app name for output message
+	cfg, _ := loader.Load()
+	appName := "myapp"
+	if cfg != nil {
+		appName = cfg.Metadata.Name
 	}
 
 	fmt.Printf("Removed %s from %s\n", depType, configPath)
 	fmt.Println()
 	fmt.Printf("Note: Deployed resources are not automatically removed.\n")
 	fmt.Printf("  → Run 'kbox deploy' to update the deployment\n")
-	fmt.Printf("  → Or delete manually: kubectl delete statefulset %s-%s\n", cfg.Metadata.Name, depType)
+	fmt.Printf("  → Or delete manually: kubectl delete statefulset %s-%s\n", appName, depType)
 
 	return nil
 }

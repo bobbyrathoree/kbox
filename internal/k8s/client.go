@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -84,6 +85,11 @@ func NewClient(opts ClientOptions) (*Client, error) {
 		Namespace:     namespace,
 		ServerVersion: serverVersion,
 	}, nil
+}
+
+// DynamicClient creates a dynamic client for CRD operations
+func (c *Client) DynamicClient() (dynamic.Interface, error) {
+	return dynamic.NewForConfig(c.RestConfig)
 }
 
 // KubeconfigPath returns the path to the kubeconfig file

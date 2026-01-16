@@ -9,6 +9,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	policyv1 "k8s.io/api/policy/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
@@ -29,6 +30,7 @@ type Bundle struct {
 	NetworkPolicies        []*networkingv1.NetworkPolicy
 	HPA                    *autoscalingv2.HorizontalPodAutoscaler
 	PDB                    *policyv1.PodDisruptionBudget
+	ServiceMonitors        []*unstructured.Unstructured
 	// Deployment is kept for backward compatibility (points to first deployment)
 	Deployment *appsv1.Deployment
 }
@@ -93,6 +95,10 @@ func (b *Bundle) AllObjects() []runtime.Object {
 	// PDB after Deployment (depends on Deployment)
 	if b.PDB != nil {
 		objects = append(objects, b.PDB)
+	}
+	// ServiceMonitors for Prometheus (optional observability)
+	for _, sm := range b.ServiceMonitors {
+		objects = append(objects, sm)
 	}
 
 	return objects
@@ -240,6 +246,11 @@ func (r *Renderer) Render() (*Bundle, error) {
 
 	// Render PDB if configured
 	bundle.PDB = r.RenderPDB()
+
+	// Render ServiceMonitor for Prometheus if metrics enabled
+	if sm := r.RenderServiceMonitor(); sm != nil {
+		bundle.ServiceMonitors = append(bundle.ServiceMonitors, sm)
+	}
 
 	return bundle, nil
 }

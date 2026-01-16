@@ -223,6 +223,10 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 	if timeout > 0 {
 		engine.SetTimeout(timeout)
 	}
+	// Set up dynamic client for CRD support (ServiceMonitor, etc.)
+	if dynClient, err := client.DynamicClient(); err == nil {
+		engine.SetDynamicClient(dynClient)
+	}
 	applyResult, err := engine.Apply(cmd.Context(), bundle)
 	if err != nil {
 		return finalize(err)
@@ -401,6 +405,11 @@ func printDeployPreview(bundle *render.Bundle) {
 			fmt.Printf("    - %s (StatefulSet, %s storage)\n", ss.Name, storage)
 		}
 	}
+
+	// ServiceMonitors (Prometheus)
+	if len(bundle.ServiceMonitors) > 0 {
+		fmt.Printf("  ServiceMonitors: %d\n", len(bundle.ServiceMonitors))
+	}
 }
 
 // deployFromFile handles deployment from a specific config file
@@ -521,6 +530,10 @@ func deployFromFile(cmd *cobra.Command, configFile, env, namespace, kubeContext 
 	engine := apply.NewEngine(client.Clientset, applyOut)
 	if timeout > 0 {
 		engine.SetTimeout(timeout)
+	}
+	// Set up dynamic client for CRD support (ServiceMonitor, etc.)
+	if dynClient, err := client.DynamicClient(); err == nil {
+		engine.SetDynamicClient(dynClient)
 	}
 	applyResult, err := engine.Apply(cmd.Context(), bundle)
 	if err != nil {
