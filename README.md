@@ -50,7 +50,7 @@ And you get **secure, production-ready defaults** out of the box:
 - Resource limits and requests
 - Network policies
 - Service accounts with minimal permissions
-- Health probes, HPA, PDB auto-configured
+- PDB auto-generated when replicas > 1
 
 ---
 
@@ -76,6 +76,18 @@ Download the latest release from [GitHub Releases](https://github.com/bobbyratho
 
 ```bash
 kbox doctor
+```
+
+### Requirements
+
+- **Docker** - For building images
+- **kubectl** - Configured with cluster access
+- **Kubernetes cluster** - kind, minikube, or any cloud provider (EKS, GKE, AKS)
+
+Quick local setup:
+```bash
+# Install kind and create a cluster
+kind create cluster
 ```
 
 ---
@@ -109,6 +121,7 @@ kbox deploy                  # Deploy to cluster
 ### Add a Database
 
 ```bash
+kbox init                    # Create kbox.yaml first (if not exists)
 kbox add postgres            # Add PostgreSQL
 kbox deploy                  # Deploy with database
 ```
@@ -165,10 +178,10 @@ Environment variables are automatically injected:
 
 | Dependency | Injected Variables |
 |------------|-------------------|
-| PostgreSQL | `DATABASE_URL`, `PGUSER`, `PGPASSWORD`, `PGHOST`, `PGPORT` |
-| Redis | `REDIS_URL`, `REDIS_HOST`, `REDIS_PORT` |
-| MongoDB | `MONGO_URL`, `MONGO_HOST`, `MONGO_PORT` |
-| MySQL | `MYSQL_URL`, `MYSQL_HOST`, `MYSQL_USER`, `MYSQL_PASSWORD` |
+| PostgreSQL | `DATABASE_URL`, `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, `PGDATABASE` |
+| Redis | `REDIS_URL`, `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD` |
+| MongoDB | `MONGODB_URL`, `MONGODB_HOST`, `MONGODB_PORT`, `MONGODB_USER`, `MONGODB_PASSWORD` |
+| MySQL | `DATABASE_URL`, `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_USER`, `MYSQL_PASSWORD` |
 
 ### Multi-Environment Support
 
@@ -236,10 +249,10 @@ Example GitHub Actions workflow:
 |---------|-------------|
 | `kbox up` | Build + deploy + stream logs (zero-config) |
 | `kbox dev` | Watch mode: rebuild on file changes |
-| `kbox logs` | Logs with K8s events interleaved |
-| `kbox shell` | Shell into any container (even distroless!) |
-| `kbox pf` | Port-forward to your app |
-| `kbox status` | Rich deployment status |
+| `kbox logs <app>` | Logs with K8s events interleaved |
+| `kbox shell <app>` | Shell into any container (even distroless!) |
+| `kbox pf <app> <port>` | Port-forward to your app |
+| `kbox status <app>` | Rich deployment status |
 
 ### Operations
 
@@ -265,7 +278,7 @@ Build from Dockerfile and deploy to cluster. Perfect for development.
 ```bash
 kbox up                      # Build and deploy
 kbox up --no-logs            # Deploy without streaming logs
-kbox up --tag v1.0.0         # Use specific image tag
+kbox up -e staging           # Use environment overlay
 ```
 </details>
 
@@ -314,9 +327,9 @@ kbox render | kubectl apply -f -  # Pipe to kubectl
 Stream logs with Kubernetes events interleaved for debugging.
 
 ```bash
-kbox logs                    # Stream all pod logs
-kbox logs --previous         # Logs from crashed container
-kbox logs -f                 # Follow logs
+kbox logs myapp              # Stream logs from app
+kbox logs myapp --previous   # Logs from crashed container
+kbox logs myapp -f           # Follow logs
 ```
 </details>
 
@@ -326,8 +339,8 @@ kbox logs -f                 # Follow logs
 Get a shell in any container, including distroless images.
 
 ```bash
-kbox shell                   # Interactive shell
-kbox shell -- ls /app        # Run single command
+kbox shell myapp             # Interactive shell
+kbox shell myapp -- ls /app  # Run single command
 ```
 </details>
 
@@ -337,9 +350,9 @@ kbox shell -- ls /app        # Run single command
 Roll back to a previous release instantly.
 
 ```bash
-kbox rollback                # Rollback to previous
-kbox rollback 3              # Rollback to revision 3
-kbox history                 # View available revisions
+kbox rollback myapp          # Rollback to previous release
+kbox rollback myapp --to 3   # Rollback to specific revision
+kbox history myapp           # View available revisions
 ```
 </details>
 
@@ -412,10 +425,10 @@ spec:
   # Volumes
   volumes:
     - name: data
-      path: /data
+      mountPath: /data
       size: 5Gi
     - name: config
-      path: /etc/config
+      mountPath: /etc/config
       configMap: myapp-config
 
   # Init containers
@@ -478,18 +491,6 @@ sops --encrypt --age <PUBLIC_KEY> secrets.yaml > secrets.enc.yaml
 | Dependency management | Built-in | Manual | Via subcharts |
 | Rollback | `kbox rollback` | Complex | `helm rollback` |
 | CI/CD ready | Native JSON output | Manual | Plugin required |
-
----
-
-## Requirements
-
-- **Docker** - For building images
-- **kubectl** - Configured with cluster access
-- **Kubernetes cluster** - Any cluster (kind, minikube, EKS, GKE, AKS...)
-
-Optional:
-- **sops** - For encrypted secrets
-- **kind/minikube** - For local development
 
 ---
 
