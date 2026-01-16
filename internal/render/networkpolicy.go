@@ -9,9 +9,12 @@ import (
 
 // RenderNetworkPolicy creates a NetworkPolicy for the app
 func (r *Renderer) RenderNetworkPolicy() *networkingv1.NetworkPolicy {
-	// Allow DNS egress
+	// Protocol and port definitions
 	dnsPort := intstr.FromInt(53)
+	httpPort := intstr.FromInt(80)
+	httpsPort := intstr.FromInt(443)
 	udp := corev1.ProtocolUDP
+	tcp := corev1.ProtocolTCP
 
 	return &networkingv1.NetworkPolicy{
 		TypeMeta: metav1.TypeMeta{
@@ -76,6 +79,20 @@ func (r *Renderer) RenderNetworkPolicy() *networkingv1.NetworkPolicy {
 						{
 							Protocol: &udp,
 							Port:     &dnsPort,
+						},
+					},
+				},
+				{
+					// Allow external HTTPS/HTTP egress (for APIs, webhooks, etc.)
+					// Empty To[] means all external destinations
+					Ports: []networkingv1.NetworkPolicyPort{
+						{
+							Protocol: &tcp,
+							Port:     &httpsPort,
+						},
+						{
+							Protocol: &tcp,
+							Port:     &httpPort,
 						},
 					},
 				},

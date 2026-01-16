@@ -3,6 +3,7 @@ package debug
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"sync"
@@ -128,6 +129,10 @@ func streamPodLogs(ctx context.Context, client *kubernetes.Clientset, pod PodInf
 	defer stream.Close()
 
 	scanner := bufio.NewScanner(stream)
+	// 1MB buffer for large stack traces (default is 64KB which can overflow)
+	buf := make([]byte, 0, 1024*1024)
+	scanner.Buffer(buf, 1024*1024)
+
 	for scanner.Scan() {
 		line := scanner.Text()
 		ts, msg := parseLogLine(line)
@@ -135,6 +140,24 @@ func streamPodLogs(ctx context.Context, client *kubernetes.Clientset, pod PodInf
 			Timestamp: ts,
 			Source:    fmt.Sprintf("pod/%s", shortName(pod.Name)),
 			Message:   msg,
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		if errors.Is(err, bufio.ErrTooLong) {
+			lines <- LogLine{
+				Timestamp: time.Now(),
+				Source:    fmt.Sprintf("pod/%s", shortName(pod.Name)),
+				Message:   "[kbox] Warning: log line exceeded 1MB, truncated",
+				IsEvent:   true,
+			}
+		} else {
+			lines <- LogLine{
+				Timestamp: time.Now(),
+				Source:    fmt.Sprintf("pod/%s", shortName(pod.Name)),
+				Message:   fmt.Sprintf("[kbox] Log stream error: %v", err),
+				IsEvent:   true,
+			}
 		}
 	}
 }
@@ -163,6 +186,10 @@ func fetchPreviousLogs(ctx context.Context, client *kubernetes.Clientset, pod Po
 	}
 
 	scanner := bufio.NewScanner(stream)
+	// 1MB buffer for large stack traces (default is 64KB which can overflow)
+	buf := make([]byte, 0, 1024*1024)
+	scanner.Buffer(buf, 1024*1024)
+
 	for scanner.Scan() {
 		line := scanner.Text()
 		ts, msg := parseLogLine(line)
@@ -170,6 +197,24 @@ func fetchPreviousLogs(ctx context.Context, client *kubernetes.Clientset, pod Po
 			Timestamp: ts,
 			Source:    fmt.Sprintf("pod/%s", shortName(pod.Name)),
 			Message:   msg,
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		if errors.Is(err, bufio.ErrTooLong) {
+			lines <- LogLine{
+				Timestamp: time.Now(),
+				Source:    fmt.Sprintf("pod/%s", shortName(pod.Name)),
+				Message:   "[kbox] Warning: log line exceeded 1MB, truncated",
+				IsEvent:   true,
+			}
+		} else {
+			lines <- LogLine{
+				Timestamp: time.Now(),
+				Source:    fmt.Sprintf("pod/%s", shortName(pod.Name)),
+				Message:   fmt.Sprintf("[kbox] Log stream error: %v", err),
+				IsEvent:   true,
+			}
 		}
 	}
 

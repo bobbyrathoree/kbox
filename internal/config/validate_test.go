@@ -232,3 +232,177 @@ func TestIsValidName(t *testing.T) {
 		})
 	}
 }
+
+// Tests for Issue #9: K8s quantity validation
+func TestValidate_InvalidQuantity(t *testing.T) {
+	tests := []struct {
+		name        string
+		memory      string
+		cpu         string
+		memoryLimit string
+		cpuLimit    string
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:    "valid memory",
+			memory:  "256Mi",
+			wantErr: false,
+		},
+		{
+			name:    "valid cpu",
+			cpu:     "100m",
+			wantErr: false,
+		},
+		{
+			name:        "invalid memory unit",
+			memory:      "500z",
+			wantErr:     true,
+			errContains: "invalid Kubernetes quantity",
+		},
+		{
+			name:        "invalid cpu format",
+			cpu:         "abc",
+			wantErr:     true,
+			errContains: "invalid Kubernetes quantity",
+		},
+		{
+			name:        "invalid memory limit",
+			memoryLimit: "not-a-quantity",
+			wantErr:     true,
+			errContains: "invalid Kubernetes quantity",
+		},
+		{
+			name:     "invalid cpu limit",
+			cpuLimit: "xyz123",
+			wantErr:  true,
+			errContains: "invalid Kubernetes quantity",
+		},
+		{
+			name:        "valid quantities",
+			memory:      "128Mi",
+			cpu:         "50m",
+			memoryLimit: "256Mi",
+			cpuLimit:    "100m",
+			wantErr:     false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := &AppConfig{
+				APIVersion: DefaultAPIVersion,
+				Kind:       DefaultKind,
+				Metadata:   Metadata{Name: "myapp"},
+				Spec: AppSpec{
+					Image: "myapp:v1",
+					Resources: &ResourceConfig{
+						Memory:      tt.memory,
+						CPU:         tt.cpu,
+						MemoryLimit: tt.memoryLimit,
+						CPULimit:    tt.cpuLimit,
+					},
+				},
+			}
+
+			err := Validate(config)
+			hasErr := err != nil
+
+			if hasErr != tt.wantErr {
+				t.Errorf("wantErr=%v, gotErr=%v (%v)", tt.wantErr, hasErr, err)
+			}
+
+			if tt.wantErr && tt.errContains != "" && !strings.Contains(err.Error(), tt.errContains) {
+				t.Errorf("expected error to contain %q, got: %v", tt.errContains, err)
+			}
+		})
+	}
+}
+
+// Tests for Issue #10: Request <= Limit validation
+func TestValidate_RequestExceedsLimit(t *testing.T) {
+	tests := []struct {
+		name        string
+		memory      string
+		memoryLimit string
+		cpu         string
+		cpuLimit    string
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:        "memory request equals limit",
+			memory:      "256Mi",
+			memoryLimit: "256Mi",
+			wantErr:     false,
+		},
+		{
+			name:        "memory request less than limit",
+			memory:      "128Mi",
+			memoryLimit: "256Mi",
+			wantErr:     false,
+		},
+		{
+			name:        "memory request exceeds limit",
+			memory:      "512Mi",
+			memoryLimit: "128Mi",
+			wantErr:     true,
+			errContains: "memory request (512Mi) exceeds limit (128Mi)",
+		},
+		{
+			name:     "cpu request equals limit",
+			cpu:      "100m",
+			cpuLimit: "100m",
+			wantErr:  false,
+		},
+		{
+			name:     "cpu request less than limit",
+			cpu:      "50m",
+			cpuLimit: "100m",
+			wantErr:  false,
+		},
+		{
+			name:        "cpu request exceeds limit",
+			cpu:         "500m",
+			cpuLimit:    "100m",
+			wantErr:     true,
+			errContains: "cpu request (500m) exceeds limit (100m)",
+		},
+		{
+			name:   "only request set (no limit) - valid",
+			memory: "256Mi",
+			cpu:    "100m",
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := &AppConfig{
+				APIVersion: DefaultAPIVersion,
+				Kind:       DefaultKind,
+				Metadata:   Metadata{Name: "myapp"},
+				Spec: AppSpec{
+					Image: "myapp:v1",
+					Resources: &ResourceConfig{
+						Memory:      tt.memory,
+						CPU:         tt.cpu,
+						MemoryLimit: tt.memoryLimit,
+						CPULimit:    tt.cpuLimit,
+					},
+				},
+			}
+
+			err := Validate(config)
+			hasErr := err != nil
+
+			if hasErr != tt.wantErr {
+				t.Errorf("wantErr=%v, gotErr=%v (%v)", tt.wantErr, hasErr, err)
+			}
+
+			if tt.wantErr && tt.errContains != "" && !strings.Contains(err.Error(), tt.errContains) {
+				t.Errorf("expected error to contain %q, got: %v", tt.errContains, err)
+			}
+		})
+	}
+}

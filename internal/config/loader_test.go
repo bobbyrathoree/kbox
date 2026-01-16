@@ -225,9 +225,22 @@ func TestParseExposedPort(t *testing.T) {
 			want:       0,
 		},
 		{
-			name:       "multiple exposes",
+			name:       "multiple exposes - last wins for multi-stage",
 			dockerfile: "FROM alpine\nEXPOSE 8080\nEXPOSE 9000\nCMD [\"./app\"]",
-			want:       8080, // First one wins
+			want:       9000, // Last one wins (for multi-stage builds)
+		},
+		{
+			name: "multi-stage dockerfile",
+			dockerfile: `FROM node:18 AS builder
+WORKDIR /app
+EXPOSE 8080
+RUN npm run build
+
+FROM node:18-slim
+WORKDIR /app
+EXPOSE 3000
+CMD ["node", "dist/index.js"]`,
+			want: 3000, // Final stage port should be used
 		},
 	}
 

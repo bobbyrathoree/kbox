@@ -156,24 +156,26 @@ func (r *Renderer) RenderDeployment() (*appsv1.Deployment, error) {
 }
 
 func (r *Renderer) renderEnvVars() []corev1.EnvVar {
-	var envVars []corev1.EnvVar
-
-	// Add env vars from config
-	for k, v := range r.config.Spec.Env {
-		envVars = append(envVars, corev1.EnvVar{
-			Name:  k,
-			Value: v,
-		})
-	}
-
-	// Sort for deterministic output
-	sortEnvVars(envVars)
-
-	return envVars
+	// Env vars from Spec.Env are now sourced from ConfigMap via envFrom
+	// This function returns only special/injected env vars (e.g., from dependencies)
+	// Regular env vars come from the ConfigMap to avoid duplication
+	return nil
 }
 
 func (r *Renderer) renderEnvFrom() []corev1.EnvFromSource {
 	var envFrom []corev1.EnvFromSource
+
+	// Add ConfigMap reference for env vars (if any env vars are configured)
+	if len(r.config.Spec.Env) > 0 {
+		configMapName := r.config.Metadata.Name + "-config"
+		envFrom = append(envFrom, corev1.EnvFromSource{
+			ConfigMapRef: &corev1.ConfigMapEnvSource{
+				LocalObjectReference: corev1.LocalObjectReference{
+					Name: configMapName,
+				},
+			},
+		})
+	}
 
 	// Add secret reference for .env file if configured
 	if r.config.Spec.Secrets != nil && r.config.Spec.Secrets.FromEnvFile != "" {
@@ -247,17 +249,6 @@ func (r *Renderer) renderResources() corev1.ResourceRequirements {
 	}
 
 	return resources
-}
-
-func sortEnvVars(envVars []corev1.EnvVar) {
-	// Simple bubble sort for deterministic output
-	for i := 0; i < len(envVars); i++ {
-		for j := i + 1; j < len(envVars); j++ {
-			if envVars[i].Name > envVars[j].Name {
-				envVars[i], envVars[j] = envVars[j], envVars[i]
-			}
-		}
-	}
 }
 
 // renderInitContainers creates init containers from config

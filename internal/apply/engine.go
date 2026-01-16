@@ -62,27 +62,27 @@ type ApplyResult struct {
 func (e *Engine) Apply(ctx context.Context, bundle *render.Bundle) (*ApplyResult, error) {
 	result := &ApplyResult{}
 
-	// Stage 0: ServiceAccount (must exist before workloads that reference it)
+	// Stage 0: ServiceAccount (CRITICAL - must exist before workloads that reference it)
 	if bundle.ServiceAccount != nil {
 		created, err := e.applyServiceAccount(ctx, bundle.ServiceAccount)
 		if err != nil {
 			result.Errors = append(result.Errors, fmt.Errorf("serviceaccount %s: %w", bundle.ServiceAccount.Name, err))
-		} else {
-			if created {
-				result.Created = append(result.Created, fmt.Sprintf("ServiceAccount/%s", bundle.ServiceAccount.Name))
-			} else {
-				result.Updated = append(result.Updated, fmt.Sprintf("ServiceAccount/%s", bundle.ServiceAccount.Name))
-			}
-			fmt.Fprintf(e.out, "  ✓ ServiceAccount/%s\n", bundle.ServiceAccount.Name)
+			return result, fmt.Errorf("critical resource failed: serviceaccount %s: %w", bundle.ServiceAccount.Name, err)
 		}
+		if created {
+			result.Created = append(result.Created, fmt.Sprintf("ServiceAccount/%s", bundle.ServiceAccount.Name))
+		} else {
+			result.Updated = append(result.Updated, fmt.Sprintf("ServiceAccount/%s", bundle.ServiceAccount.Name))
+		}
+		fmt.Fprintf(e.out, "  ✓ ServiceAccount/%s\n", bundle.ServiceAccount.Name)
 	}
 
-	// Stage 0.5: PersistentVolumeClaims (storage before anything else)
+	// Stage 0.5: PersistentVolumeClaims (CRITICAL - storage before anything else)
 	for _, pvc := range bundle.PersistentVolumeClaims {
 		created, err := e.applyPVC(ctx, pvc)
 		if err != nil {
 			result.Errors = append(result.Errors, fmt.Errorf("pvc %s: %w", pvc.Name, err))
-			continue
+			return result, fmt.Errorf("critical resource failed: pvc %s: %w", pvc.Name, err)
 		}
 		if created {
 			result.Created = append(result.Created, fmt.Sprintf("PersistentVolumeClaim/%s", pvc.Name))
@@ -92,12 +92,12 @@ func (e *Engine) Apply(ctx context.Context, bundle *render.Bundle) (*ApplyResult
 		fmt.Fprintf(e.out, "  ✓ PersistentVolumeClaim/%s\n", pvc.Name)
 	}
 
-	// Stage 1: ConfigMaps and Secrets (config first)
+	// Stage 1: ConfigMaps (CRITICAL - config must exist before workloads)
 	for _, cm := range bundle.ConfigMaps {
 		created, err := e.applyConfigMap(ctx, cm)
 		if err != nil {
 			result.Errors = append(result.Errors, fmt.Errorf("configmap %s: %w", cm.Name, err))
-			continue
+			return result, fmt.Errorf("critical resource failed: configmap %s: %w", cm.Name, err)
 		}
 		if created {
 			result.Created = append(result.Created, fmt.Sprintf("ConfigMap/%s", cm.Name))
@@ -107,11 +107,12 @@ func (e *Engine) Apply(ctx context.Context, bundle *render.Bundle) (*ApplyResult
 		fmt.Fprintf(e.out, "  ✓ ConfigMap/%s\n", cm.Name)
 	}
 
+	// Stage 1: Secrets (CRITICAL - secrets must exist before workloads)
 	for _, secret := range bundle.Secrets {
 		created, err := e.applySecret(ctx, secret)
 		if err != nil {
 			result.Errors = append(result.Errors, fmt.Errorf("secret %s: %w", secret.Name, err))
-			continue
+			return result, fmt.Errorf("critical resource failed: secret %s: %w", secret.Name, err)
 		}
 		if created {
 			result.Created = append(result.Created, fmt.Sprintf("Secret/%s", secret.Name))
@@ -121,12 +122,12 @@ func (e *Engine) Apply(ctx context.Context, bundle *render.Bundle) (*ApplyResult
 		fmt.Fprintf(e.out, "  ✓ Secret/%s\n", secret.Name)
 	}
 
-	// Stage 2: Services
+	// Stage 2: Services (CRITICAL - services must exist for proper networking)
 	for _, svc := range bundle.Services {
 		created, err := e.applyService(ctx, svc)
 		if err != nil {
 			result.Errors = append(result.Errors, fmt.Errorf("service %s: %w", svc.Name, err))
-			continue
+			return result, fmt.Errorf("critical resource failed: service %s: %w", svc.Name, err)
 		}
 		if created {
 			result.Created = append(result.Created, fmt.Sprintf("Service/%s", svc.Name))
@@ -136,12 +137,12 @@ func (e *Engine) Apply(ctx context.Context, bundle *render.Bundle) (*ApplyResult
 		fmt.Fprintf(e.out, "  ✓ Service/%s\n", svc.Name)
 	}
 
-	// Stage 2.5: StatefulSets (databases/dependencies must be ready before app Deployment)
+	// Stage 2.5: StatefulSets (CRITICAL - databases/dependencies must be ready before app Deployment)
 	for _, ss := range bundle.StatefulSets {
 		created, err := e.applyStatefulSet(ctx, ss)
 		if err != nil {
 			result.Errors = append(result.Errors, fmt.Errorf("statefulset %s: %w", ss.Name, err))
-			continue
+			return result, fmt.Errorf("critical resource failed: statefulset %s: %w", ss.Name, err)
 		}
 		if created {
 			result.Created = append(result.Created, fmt.Sprintf("StatefulSet/%s", ss.Name))
@@ -151,19 +152,19 @@ func (e *Engine) Apply(ctx context.Context, bundle *render.Bundle) (*ApplyResult
 		fmt.Fprintf(e.out, "  ✓ StatefulSet/%s\n", ss.Name)
 	}
 
-	// Stage 3: Deployment
+	// Stage 3: Deployment (CRITICAL - the main workload)
 	if bundle.Deployment != nil {
 		created, err := e.applyDeployment(ctx, bundle.Deployment)
 		if err != nil {
 			result.Errors = append(result.Errors, fmt.Errorf("deployment %s: %w", bundle.Deployment.Name, err))
-		} else {
-			if created {
-				result.Created = append(result.Created, fmt.Sprintf("Deployment/%s", bundle.Deployment.Name))
-			} else {
-				result.Updated = append(result.Updated, fmt.Sprintf("Deployment/%s", bundle.Deployment.Name))
-			}
-			fmt.Fprintf(e.out, "  ✓ Deployment/%s\n", bundle.Deployment.Name)
+			return result, fmt.Errorf("critical resource failed: deployment %s: %w", bundle.Deployment.Name, err)
 		}
+		if created {
+			result.Created = append(result.Created, fmt.Sprintf("Deployment/%s", bundle.Deployment.Name))
+		} else {
+			result.Updated = append(result.Updated, fmt.Sprintf("Deployment/%s", bundle.Deployment.Name))
+		}
+		fmt.Fprintf(e.out, "  ✓ Deployment/%s\n", bundle.Deployment.Name)
 	}
 
 	// Stage 4: Ingresses
@@ -422,9 +423,12 @@ func (e *Engine) applyObject(ctx context.Context, obj runtime.Object, resource, 
 		exists = err == nil
 	}
 
-	// Apply using SSA
+	// Apply using SSA with Force=true to resolve field ownership conflicts
+	// Without Force, SSA returns 409 Conflict when another controller manages fields
+	forceTrue := true
 	patchOpts := metav1.PatchOptions{
 		FieldManager: FieldManager,
+		Force:        &forceTrue,
 	}
 
 	switch resource {

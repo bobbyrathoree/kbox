@@ -3,6 +3,8 @@ package config
 import (
 	"fmt"
 	"strings"
+
+	"k8s.io/apimachinery/pkg/api/resource"
 )
 
 // ValidationError represents a config validation error
@@ -121,8 +123,65 @@ func Validate(config *AppConfig) error {
 		}
 	}
 
+	// Validate resource quantities
+	if config.Spec.Resources != nil {
+		res := config.Spec.Resources
+		quantityFields := []struct {
+			val   string
+			field string
+		}{
+			{res.Memory, "spec.resources.memory"},
+			{res.CPU, "spec.resources.cpu"},
+			{res.MemoryLimit, "spec.resources.memoryLimit"},
+			{res.CPULimit, "spec.resources.cpuLimit"},
+		}
+		for _, check := range quantityFields {
+			if err := validateQuantity(check.val, check.field); err != nil {
+				errs = append(errs, *err)
+			}
+		}
+
+		// Validate request <= limit for memory
+		if res.Memory != "" && res.MemoryLimit != "" {
+			memReq, errReq := resource.ParseQuantity(res.Memory)
+			memLim, errLim := resource.ParseQuantity(res.MemoryLimit)
+			if errReq == nil && errLim == nil && memReq.Cmp(memLim) > 0 {
+				errs = append(errs, ValidationError{
+					Field:   "spec.resources",
+					Message: fmt.Sprintf("memory request (%s) exceeds limit (%s)", res.Memory, res.MemoryLimit),
+				})
+			}
+		}
+
+		// Validate request <= limit for CPU
+		if res.CPU != "" && res.CPULimit != "" {
+			cpuReq, errReq := resource.ParseQuantity(res.CPU)
+			cpuLim, errLim := resource.ParseQuantity(res.CPULimit)
+			if errReq == nil && errLim == nil && cpuReq.Cmp(cpuLim) > 0 {
+				errs = append(errs, ValidationError{
+					Field:   "spec.resources",
+					Message: fmt.Sprintf("cpu request (%s) exceeds limit (%s)", res.CPU, res.CPULimit),
+				})
+			}
+		}
+	}
+
 	if len(errs) > 0 {
 		return errs
+	}
+	return nil
+}
+
+// validateQuantity validates a Kubernetes resource quantity string
+func validateQuantity(value, field string) *ValidationError {
+	if value == "" {
+		return nil
+	}
+	if _, err := resource.ParseQuantity(value); err != nil {
+		return &ValidationError{
+			Field:   field,
+			Message: fmt.Sprintf("invalid Kubernetes quantity %q: %v", value, err),
+		}
 	}
 	return nil
 }

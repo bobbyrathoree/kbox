@@ -163,9 +163,11 @@ func InferFromDockerfile(dir string) (*AppConfig, error) {
 	return config, nil
 }
 
-// parseExposedPort extracts the first EXPOSE port from a Dockerfile
+// parseExposedPort extracts the last EXPOSE port from a Dockerfile.
+// Returns the last EXPOSE to support multi-stage builds where the final
+// stage has the runtime port (e.g., builder stage has 8080, final has 3000).
 func parseExposedPort(dockerfile string) int {
-	var port int
+	var lastPort int
 	lines := splitLines(dockerfile)
 	for _, line := range lines {
 		line = trimSpace(line)
@@ -180,6 +182,7 @@ func parseExposedPort(dockerfile string) int {
 				}
 			}
 			// Parse as int
+			var port int
 			for _, c := range portStr {
 				if c >= '0' && c <= '9' {
 					port = port*10 + int(c-'0')
@@ -188,11 +191,11 @@ func parseExposedPort(dockerfile string) int {
 				}
 			}
 			if port > 0 {
-				return port
+				lastPort = port // Keep overwriting to get last EXPOSE
 			}
 		}
 	}
-	return 0
+	return lastPort
 }
 
 func splitLines(s string) []string {

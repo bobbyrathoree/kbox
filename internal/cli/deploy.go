@@ -41,6 +41,7 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 	timeout, _ := cmd.Flags().GetDuration("timeout")
 	namespace, _ := cmd.Flags().GetString("namespace")
 	kubeContext, _ := cmd.Flags().GetString("context")
+	prune, _ := cmd.Flags().GetBool("prune")
 
 	// CI mode and output format
 	ciMode := IsCIMode(cmd)
@@ -76,7 +77,7 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 
 	// If specific file provided, load directly (skip multi-service detection)
 	if configFile != "" {
-		return deployFromFile(cmd, configFile, env, namespace, kubeContext, dryRun, noWait, timeout, ciMode, outputFormat, timer)
+		return deployFromFile(cmd, configFile, env, namespace, kubeContext, dryRun, noWait, prune, timeout, ciMode, outputFormat, timer)
 	}
 
 	// Check if this is a multi-service config
@@ -254,6 +255,27 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 		return finalize(fmt.Errorf("deploy completed with %d errors", len(applyResult.Errors)))
 	}
 
+	// Prune orphaned resources if requested
+	if prune {
+		if !ciMode {
+			fmt.Println("\nPruning orphaned resources...")
+		}
+		pruneResult, err := engine.Prune(cmd.Context(), targetNS, appName, bundle, apply.PruneOptions{DryRun: dryRun})
+		if err != nil {
+			if !ciMode {
+				fmt.Fprintf(os.Stderr, "Warning: prune failed: %v\n", err)
+			}
+		} else if len(pruneResult.Deleted) > 0 {
+			for _, name := range pruneResult.Deleted {
+				result.Resources = append(result.Resources, output.ResourceResult{
+					Kind:   extractKind(name),
+					Name:   extractName(name),
+					Action: "deleted",
+				})
+			}
+		}
+	}
+
 	// Wait for rollout
 	if !noWait && bundle.Deployment != nil {
 		if err := engine.WaitForRollout(cmd.Context(), targetNS, bundle.Deployment.Name); err != nil {
@@ -382,7 +404,7 @@ func printDeployPreview(bundle *render.Bundle) {
 }
 
 // deployFromFile handles deployment from a specific config file
-func deployFromFile(cmd *cobra.Command, configFile, env, namespace, kubeContext string, dryRun, noWait bool, timeout time.Duration, ciMode bool, outputFormat string, timer *output.Timer) error {
+func deployFromFile(cmd *cobra.Command, configFile, env, namespace, kubeContext string, dryRun, noWait, prune bool, timeout time.Duration, ciMode bool, outputFormat string, timer *output.Timer) error {
 	result := &output.DeployResult{Success: false}
 
 	finalize := func(err error) error {
@@ -532,6 +554,27 @@ func deployFromFile(cmd *cobra.Command, configFile, env, namespace, kubeContext 
 		return finalize(fmt.Errorf("deploy completed with %d errors", len(applyResult.Errors)))
 	}
 
+	// Prune orphaned resources if requested
+	if prune {
+		if !ciMode {
+			fmt.Println("\nPruning orphaned resources...")
+		}
+		pruneResult, err := engine.Prune(cmd.Context(), targetNS, appName, bundle, apply.PruneOptions{DryRun: dryRun})
+		if err != nil {
+			if !ciMode {
+				fmt.Fprintf(os.Stderr, "Warning: prune failed: %v\n", err)
+			}
+		} else if len(pruneResult.Deleted) > 0 {
+			for _, name := range pruneResult.Deleted {
+				result.Resources = append(result.Resources, output.ResourceResult{
+					Kind:   extractKind(name),
+					Name:   extractName(name),
+					Action: "deleted",
+				})
+			}
+		}
+	}
+
 	// Wait for rollout
 	if !noWait && bundle.Deployment != nil {
 		if err := engine.WaitForRollout(cmd.Context(), targetNS, bundle.Deployment.Name); err != nil {
@@ -571,5 +614,6 @@ func init() {
 	deployCmd.Flags().Bool("dry-run", false, "Show what would be deployed without applying")
 	deployCmd.Flags().Bool("no-wait", false, "Don't wait for rollout to complete")
 	deployCmd.Flags().Duration("timeout", 5*time.Minute, "Timeout for rollout completion (e.g., 10m, 30s)")
+	deployCmd.Flags().Bool("prune", false, "Delete orphaned resources not in kbox.yaml")
 	rootCmd.AddCommand(deployCmd)
 }
