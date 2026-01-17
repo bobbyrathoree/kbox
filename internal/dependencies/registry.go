@@ -35,6 +35,12 @@ type Template struct {
 	// ConnectCommand for kbox db connect
 	ConnectCommand []string
 
+	// BackupCommand for kbox db backup
+	BackupCommand []string
+
+	// RestoreCommand for kbox db restore
+	RestoreCommand []string
+
 	// CommandArgs are arguments to pass to the container command
 	// Used for databases that need password arguments (e.g., redis --requirepass)
 	CommandArgs []string
@@ -58,6 +64,8 @@ var Registry = map[string]Template{
 		SecretKeys:     []string{"POSTGRES_PASSWORD"},
 		HealthCheck:    []string{"pg_isready", "-U", "postgres"},
 		ConnectCommand: []string{"psql", "-U", "postgres"},
+		BackupCommand:  []string{"pg_dump", "-U", "postgres"},
+		RestoreCommand: []string{"psql", "-U", "postgres"},
 	},
 	"redis": {
 		Image:          "redis",
@@ -73,6 +81,8 @@ var Registry = map[string]Template{
 		SecretKeys:     []string{"REDIS_PASSWORD"},
 		HealthCheck:    []string{"redis-cli", "-a", "$(REDIS_PASSWORD)", "ping"},
 		ConnectCommand: []string{"redis-cli", "-a", "$(REDIS_PASSWORD)"},
+		BackupCommand:  []string{"redis-cli", "-a", "$(REDIS_PASSWORD)", "--rdb", "/tmp/dump.rdb", "BGSAVE"},
+		RestoreCommand: nil, // Redis restore requires manual RDB file copy
 		CommandArgs:    []string{"redis-server", "--requirepass", "$(REDIS_PASSWORD)"},
 	},
 	"mongodb": {
@@ -90,6 +100,8 @@ var Registry = map[string]Template{
 		SecretKeys:     []string{"MONGO_INITDB_ROOT_PASSWORD"},
 		HealthCheck:    []string{"mongosh", "-u", "root", "-p", "$(MONGO_INITDB_ROOT_PASSWORD)", "--eval", "db.adminCommand('ping')"},
 		ConnectCommand: []string{"mongosh", "-u", "root", "-p", "$(MONGO_INITDB_ROOT_PASSWORD)"},
+		BackupCommand:  []string{"mongodump", "-u", "root", "-p", "$(MONGO_INITDB_ROOT_PASSWORD)", "--archive"},
+		RestoreCommand: []string{"mongorestore", "-u", "root", "-p", "$(MONGO_INITDB_ROOT_PASSWORD)", "--archive"},
 	},
 	"mysql": {
 		Image:          "mysql",
@@ -97,15 +109,17 @@ var Registry = map[string]Template{
 		DefaultPort:    3306,
 		DefaultStorage: "1Gi",
 		EnvVars: map[string]string{
-			"DATABASE_URL":  "mysql://root:{{.Password}}@{{.Service}}:3306/mysql",
-			"MYSQL_HOST":    "{{.Service}}",
-			"MYSQL_PORT":    "3306",
-			"MYSQL_USER":    "root",
+			"DATABASE_URL":   "mysql://root:{{.Password}}@{{.Service}}:3306/mysql",
+			"MYSQL_HOST":     "{{.Service}}",
+			"MYSQL_PORT":     "3306",
+			"MYSQL_USER":     "root",
 			"MYSQL_PASSWORD": "{{.Password}}",
 		},
 		SecretKeys:     []string{"MYSQL_ROOT_PASSWORD"},
 		HealthCheck:    []string{"mysqladmin", "ping", "-h", "localhost"},
-		ConnectCommand: []string{"mysql", "-u", "root", "-p"},
+		ConnectCommand: []string{"mysql", "-u", "root", "-p$(MYSQL_ROOT_PASSWORD)"},
+		BackupCommand:  []string{"mysqldump", "-u", "root", "-p$(MYSQL_ROOT_PASSWORD)", "--all-databases"},
+		RestoreCommand: []string{"mysql", "-u", "root", "-p$(MYSQL_ROOT_PASSWORD)"},
 	},
 }
 
