@@ -63,20 +63,18 @@ func runTemplate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("unknown template type %q\n  Supported: %s", templateType, strings.Join(types, ", "))
 	}
 
-	// Validate or prompt for language
-	if lang == "" {
-		// For now, default to Go. In Phase 2 we'll add interactive prompts.
-		lang = "go"
-		fmt.Fprintf(os.Stderr, "No --lang specified, using: %s\n", lang)
-	}
-
-	tmplLang, ok := template.ValidateLanguage(lang)
-	if !ok {
-		langs := []string{}
-		for _, l := range template.SupportedLanguages() {
-			langs = append(langs, string(l))
+	// Validate language if provided
+	var tmplLang template.Language
+	if lang != "" {
+		var ok bool
+		tmplLang, ok = template.ValidateLanguage(lang)
+		if !ok {
+			langs := []string{}
+			for _, l := range template.SupportedLanguages() {
+				langs = append(langs, string(l))
+			}
+			return fmt.Errorf("unknown language %q\n  Supported: %s", lang, strings.Join(langs, ", "))
 		}
-		return fmt.Errorf("unknown language %q\n  Supported: %s", lang, strings.Join(langs, ", "))
 	}
 
 	// Validate database if specified
@@ -89,17 +87,27 @@ func runTemplate(cmd *cobra.Command, args []string) error {
 
 	// Create generator config
 	cfg := template.Config{
-		Name:     name,
+		Name:      name,
 		OutputDir: dir,
-		Type:     tmplType,
-		Lang:     tmplLang,
-		Port:     port,
-		Database: db,
-		Force:    force,
+		Type:      tmplType,
+		Lang:      tmplLang,
+		Port:      port,
+		Database:  db,
+		Force:     force,
+	}
+
+	// Check if we need interactive prompts (language not specified)
+	needsPrompts := lang == ""
+	if needsPrompts {
+		fmt.Fprintf(os.Stderr, "Creating %s service scaffold...\n\n", tmplType)
+		if err := template.PromptConfig(&cfg); err != nil {
+			return err
+		}
+		fmt.Fprintln(os.Stderr)
 	}
 
 	// Generate scaffold
-	fmt.Fprintf(os.Stderr, "Creating %s scaffold for %s...\n\n", tmplType, name)
+	fmt.Fprintf(os.Stderr, "Generating scaffold...\n")
 
 	generator := template.NewGenerator(cfg)
 	if err := generator.Generate(); err != nil {

@@ -19,20 +19,24 @@ var rolloutCmd = &cobra.Command{
 	Short: "Manage deployment rollouts",
 	Long: `Manage deployment rollouts for your application.
 
-View rollout status, pause/resume rollouts, and undo deployments.
+View rollout status, pause/resume rollouts, undo deployments, and run canary releases.
 
 Subcommands:
   status     Show current rollout status
   pause      Pause an in-progress rollout
   resume     Resume a paused rollout
   undo       Undo current rollout to previous version
+  canary     Start a canary deployment
+  promote    Promote canary to full deployment
 
 Examples:
   kbox rollout status              # Show rollout status
   kbox rollout status --watch      # Watch rollout progress
   kbox rollout pause               # Pause current rollout
   kbox rollout resume              # Resume paused rollout
-  kbox rollout undo                # Undo to previous version`,
+  kbox rollout undo                # Undo to previous version
+  kbox rollout canary --weight 20  # Deploy canary (20% traffic)
+  kbox rollout promote             # Promote canary to 100%`,
 }
 
 var rolloutStatusCmd = &cobra.Command{
@@ -102,15 +106,61 @@ Examples:
 	RunE: runRolloutUndo,
 }
 
+var rolloutCanaryCmd = &cobra.Command{
+	Use:   "canary [app]",
+	Short: "Start canary deployment",
+	Long: `Start a canary deployment to test a new version with a portion of traffic.
+
+Creates a separate canary deployment alongside the main deployment.
+Traffic is split based on pod ratio (e.g., 4 main + 1 canary = ~20% canary).
+
+The canary uses the same Service selector, so traffic load-balances between
+both deployments automatically.
+
+Flags:
+  --weight    Percentage of traffic for canary (1-100, default: 20)
+  --image     Image for canary (default: same as main deployment)
+
+Examples:
+  kbox rollout canary              # 20% canary with current image
+  kbox rollout canary --weight 10  # 10% canary
+  kbox rollout canary --image myapp:v2.0.0 --weight 25`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: runRolloutCanary,
+}
+
+var rolloutPromoteCmd = &cobra.Command{
+	Use:   "promote [app]",
+	Short: "Promote canary deployment",
+	Long: `Promote the canary deployment to become the main deployment.
+
+This updates the main deployment's image to match the canary, then
+deletes the canary deployment. All traffic will go to the new version.
+
+If no canary exists, this command will fail.
+
+Examples:
+  kbox rollout promote             # Promote canary from kbox.yaml
+  kbox rollout promote myapp       # Promote specific app's canary`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: runRolloutPromote,
+}
+
 func init() {
 	// Status flags
 	rolloutStatusCmd.Flags().BoolP("watch", "w", false, "Watch rollout progress")
+
+	// Canary flags
+	rolloutCanaryCmd.Flags().IntP("weight", "w", 20, "Traffic percentage for canary (1-100)")
+	rolloutCanaryCmd.Flags().StringP("image", "i", "", "Image for canary (default: same as main)")
 
 	// Add subcommands
 	rolloutCmd.AddCommand(rolloutStatusCmd)
 	rolloutCmd.AddCommand(rolloutPauseCmd)
 	rolloutCmd.AddCommand(rolloutResumeCmd)
 	rolloutCmd.AddCommand(rolloutUndoCmd)
+	rolloutCmd.AddCommand(rolloutCanaryCmd)
+	rolloutCmd.AddCommand(rolloutPromoteCmd)
 
 	rootCmd.AddCommand(rolloutCmd)
 }
@@ -301,6 +351,24 @@ func runRolloutUndo(cmd *cobra.Command, args []string) error {
 		ns = namespace
 	}
 
+	// Check if there's an active canary - if so, abort it
+	canaryStatus, _ := rollout.GetCanaryStatus(cmd.Context(), client.Clientset, ns, appName)
+	if canaryStatus != nil && canaryStatus.Active {
+		fmt.Fprintf(os.Stderr, "Aborting canary deployment for %s...\n\n", appName)
+		fmt.Fprintf(os.Stdout, "  Canary: %s (%d pods)\n", canaryStatus.CanaryImage, canaryStatus.CanaryReplicas)
+		fmt.Fprintf(os.Stdout, "  Main:   %s (%d pods)\n\n", canaryStatus.MainImage, canaryStatus.MainReplicas)
+
+		err = rollout.AbortCanary(cmd.Context(), client.Clientset, ns, appName)
+		if err != nil {
+			return err
+		}
+
+		fmt.Fprintln(os.Stdout, "Canary aborted successfully!")
+		fmt.Fprintf(os.Stdout, "  All traffic now goes to: %s\n", canaryStatus.MainImage)
+		return nil
+	}
+
+	// No canary, do normal rollout undo
 	// Get current and previous images for display
 	status, _ := rollout.GetStatus(cmd.Context(), client.Clientset, ns, appName)
 	prevImage, _ := rollout.GetPreviousImage(cmd.Context(), client.Clientset, ns, appName)
@@ -322,6 +390,111 @@ func runRolloutUndo(cmd *cobra.Command, args []string) error {
 	fmt.Fprintln(os.Stdout, "      For full config rollback, use: kbox rollback")
 
 	return nil
+}
+
+func runRolloutCanary(cmd *cobra.Command, args []string) error {
+	namespace, _ := cmd.Flags().GetString("namespace")
+	kubeContext, _ := cmd.Flags().GetString("context")
+	weight, _ := cmd.Flags().GetInt("weight")
+	image, _ := cmd.Flags().GetString("image")
+
+	// Validate weight
+	if weight < 1 || weight > 100 {
+		return fmt.Errorf("weight must be between 1 and 100, got %d", weight)
+	}
+
+	appName, err := resolveAppName(args)
+	if err != nil {
+		return err
+	}
+
+	client, err := k8s.NewClient(k8s.ClientOptions{
+		Context:   kubeContext,
+		Namespace: namespace,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to connect to cluster: %w", err)
+	}
+
+	ns := client.Namespace
+	if namespace != "" {
+		ns = namespace
+	}
+
+	fmt.Fprintf(os.Stderr, "Starting canary deployment for %s...\n\n", appName)
+
+	cfg := rollout.CanaryConfig{
+		Weight: weight,
+		Image:  image,
+	}
+
+	status, err := rollout.StartCanary(cmd.Context(), client.Clientset, ns, appName, cfg)
+	if err != nil {
+		return err
+	}
+
+	printCanaryStatus(status)
+
+	fmt.Fprintln(os.Stdout)
+	fmt.Fprintln(os.Stdout, "Monitor:  kbox rollout status")
+	fmt.Fprintln(os.Stdout, "Promote:  kbox rollout promote")
+	fmt.Fprintln(os.Stdout, "Abort:    kbox rollout undo")
+
+	return nil
+}
+
+func runRolloutPromote(cmd *cobra.Command, args []string) error {
+	namespace, _ := cmd.Flags().GetString("namespace")
+	kubeContext, _ := cmd.Flags().GetString("context")
+
+	appName, err := resolveAppName(args)
+	if err != nil {
+		return err
+	}
+
+	client, err := k8s.NewClient(k8s.ClientOptions{
+		Context:   kubeContext,
+		Namespace: namespace,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to connect to cluster: %w", err)
+	}
+
+	ns := client.Namespace
+	if namespace != "" {
+		ns = namespace
+	}
+
+	// Get canary status first
+	status, err := rollout.GetCanaryStatus(cmd.Context(), client.Clientset, ns, appName)
+	if err != nil {
+		return err
+	}
+	if !status.Active {
+		return fmt.Errorf("no canary deployment found for %q\n  Start one with: kbox rollout canary", appName)
+	}
+
+	fmt.Fprintf(os.Stderr, "Promoting canary for %s...\n\n", appName)
+	fmt.Fprintf(os.Stdout, "  Canary image: %s\n", status.CanaryImage)
+	fmt.Fprintf(os.Stdout, "  Main image:   %s\n\n", status.MainImage)
+
+	err = rollout.PromoteCanary(cmd.Context(), client.Clientset, ns, appName)
+	if err != nil {
+		return err
+	}
+
+	fmt.Fprintln(os.Stdout, "Canary promoted successfully!")
+	fmt.Fprintf(os.Stdout, "  All traffic now goes to: %s\n", status.CanaryImage)
+
+	return nil
+}
+
+func printCanaryStatus(status *rollout.CanaryStatus) {
+	fmt.Fprintf(os.Stdout, "Canary deployment created:\n")
+	fmt.Fprintf(os.Stdout, "  Main:   %s (%d%% traffic, %d pods)\n",
+		status.MainImage, 100-status.Weight, status.MainReplicas)
+	fmt.Fprintf(os.Stdout, "  Canary: %s (%d%% traffic, %d pods)\n",
+		status.CanaryImage, status.Weight, status.CanaryReplicas)
 }
 
 // resolveAppName gets app name from args or kbox.yaml
