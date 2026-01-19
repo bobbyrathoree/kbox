@@ -296,6 +296,12 @@ type OverrideConfig struct {
 
 // EnvOverride defines environment-specific overrides
 type EnvOverride struct {
+	// Namespace to deploy to (for kbox promote)
+	Namespace string `yaml:"namespace,omitempty" json:"namespace,omitempty"`
+
+	// Context is the Kubernetes context (for kbox promote to different clusters)
+	Context string `yaml:"context,omitempty" json:"context,omitempty"`
+
 	// Replicas override
 	Replicas *int `yaml:"replicas,omitempty" json:"replicas,omitempty"`
 

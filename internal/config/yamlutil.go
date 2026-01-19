@@ -159,3 +159,90 @@ func EnsureDependenciesNode(root *yaml.Node) *yaml.Node {
 
 	return depsNode
 }
+
+// SetMapKey sets a key-value pair in a mapping node (updates if exists, adds if not)
+func SetMapKey(node *yaml.Node, key, value string) {
+	if node == nil || node.Kind != yaml.MappingNode {
+		return
+	}
+	// Look for existing key
+	for i := 0; i < len(node.Content); i += 2 {
+		if node.Content[i].Value == key {
+			node.Content[i+1].Value = value
+			return
+		}
+	}
+	// Key not found, add it
+	node.Content = append(node.Content,
+		&yaml.Node{Kind: yaml.ScalarNode, Value: key},
+		&yaml.Node{Kind: yaml.ScalarNode, Value: value},
+	)
+}
+
+// RemoveMapKey removes a key from a mapping node
+// Returns true if the key was found and removed
+func RemoveMapKey(node *yaml.Node, key string) bool {
+	if node == nil || node.Kind != yaml.MappingNode {
+		return false
+	}
+	for i := 0; i < len(node.Content); i += 2 {
+		if node.Content[i].Value == key {
+			node.Content = append(node.Content[:i], node.Content[i+2:]...)
+			return true
+		}
+	}
+	return false
+}
+
+// EnsureEnvNode ensures spec.env exists and returns it
+// If it doesn't exist, creates it
+func EnsureEnvNode(root *yaml.Node) *yaml.Node {
+	specNode := FindMapKey(root, "spec")
+	if specNode == nil {
+		specNode = &yaml.Node{Kind: yaml.MappingNode}
+		AddMapKey(root, "spec", specNode)
+	}
+
+	envNode := FindMapKey(specNode, "env")
+	if envNode == nil {
+		envNode = &yaml.Node{Kind: yaml.MappingNode}
+		AddMapKey(specNode, "env", envNode)
+	}
+
+	return envNode
+}
+
+// EnsureEnvironmentEnvNode ensures environments.<env>.env exists and returns it
+func EnsureEnvironmentEnvNode(root *yaml.Node, envName string) *yaml.Node {
+	envsNode := FindMapKey(root, "environments")
+	if envsNode == nil {
+		envsNode = &yaml.Node{Kind: yaml.MappingNode}
+		AddMapKey(root, "environments", envsNode)
+	}
+
+	targetEnvNode := FindMapKey(envsNode, envName)
+	if targetEnvNode == nil {
+		targetEnvNode = &yaml.Node{Kind: yaml.MappingNode}
+		AddMapKey(envsNode, envName, targetEnvNode)
+	}
+
+	envVarsNode := FindMapKey(targetEnvNode, "env")
+	if envVarsNode == nil {
+		envVarsNode = &yaml.Node{Kind: yaml.MappingNode}
+		AddMapKey(targetEnvNode, "env", envVarsNode)
+	}
+
+	return envVarsNode
+}
+
+// GetMapEntries returns all key-value pairs from a mapping node
+func GetMapEntries(node *yaml.Node) map[string]string {
+	result := make(map[string]string)
+	if node == nil || node.Kind != yaml.MappingNode {
+		return result
+	}
+	for i := 0; i < len(node.Content); i += 2 {
+		result[node.Content[i].Value] = node.Content[i+1].Value
+	}
+	return result
+}
