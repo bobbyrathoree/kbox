@@ -281,13 +281,60 @@ func (r *Renderer) RenderSecretFromSops() (*corev1.Secret, error) {
 	return secret, nil
 }
 
-// Labels returns standard labels for the app
+// Labels returns standard labels for the app, merged with user-defined labels
 func (r *Renderer) Labels() map[string]string {
-	return map[string]string{
+	labels := map[string]string{
 		"app":                          r.config.Metadata.Name,
 		"app.kubernetes.io/name":       r.config.Metadata.Name,
 		"app.kubernetes.io/managed-by": "kbox",
 	}
+	// Merge metadata labels
+	for k, v := range r.config.Metadata.Labels {
+		labels[k] = v
+	}
+	// Merge spec labels (spec takes precedence)
+	for k, v := range r.config.Spec.Labels {
+		labels[k] = v
+	}
+	return labels
+}
+
+// mergeAnnotations merges multiple annotation maps, with later maps taking precedence
+func (r *Renderer) mergeAnnotations(maps ...map[string]string) map[string]string {
+	// Check if all maps are empty
+	allEmpty := true
+	for _, m := range maps {
+		if len(m) > 0 {
+			allEmpty = false
+			break
+		}
+	}
+	if allEmpty {
+		return nil
+	}
+
+	result := make(map[string]string)
+	for _, m := range maps {
+		for k, v := range m {
+			result[k] = v
+		}
+	}
+	return result
+}
+
+// DeploymentAnnotations returns annotations for the Deployment resource
+func (r *Renderer) DeploymentAnnotations() map[string]string {
+	return r.mergeAnnotations(r.config.Spec.Annotations, r.config.Spec.DeploymentAnnotations)
+}
+
+// PodAnnotations returns annotations for pod templates
+func (r *Renderer) PodAnnotations() map[string]string {
+	return r.mergeAnnotations(r.config.Spec.Annotations, r.config.Spec.PodAnnotations)
+}
+
+// ServiceAnnotations returns annotations for the Service resource
+func (r *Renderer) ServiceAnnotations() map[string]string {
+	return r.mergeAnnotations(r.config.Spec.Annotations, r.config.Spec.ServiceAnnotations)
 }
 
 // Selector returns the pod selector for the app

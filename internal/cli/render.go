@@ -15,12 +15,14 @@ var renderCmd = &cobra.Command{
 	Long: `Render Kubernetes manifests without applying them.
 
 This command generates YAML that would be applied to the cluster.
-Useful for previewing changes or piping to kubectl.
+Useful for previewing changes, piping to kubectl, or GitOps workflows.
 
 Examples:
-  kbox render                    # Render with default environment
-  kbox render -e prod            # Render with prod environment overlay
-  kbox render -e dev | kubectl apply -f -  # Pipe to kubectl`,
+  kbox render                           # Render with default environment
+  kbox render -e prod                   # Render with prod environment overlay
+  kbox render -e dev | kubectl apply -f -  # Pipe to kubectl
+  kbox render --out manifests.yaml      # Write to file (GitOps)
+  kbox render -e prod --out deploy/prod.yaml  # Environment-specific file`,
 	RunE: runRender,
 }
 
@@ -29,12 +31,13 @@ func runRender(cmd *cobra.Command, args []string) error {
 	redact, _ := cmd.Flags().GetBool("redact")
 	configFile, _ := cmd.Flags().GetString("file")
 	showSummary, _ := cmd.Flags().GetBool("summary")
+	outputFile, _ := cmd.Flags().GetString("out")
 	outputFormat := GetOutputFormat(cmd)
 	ciMode := IsCIMode(cmd)
 
 	// If a specific file is provided, load it directly
 	if configFile != "" {
-		return renderFromFile(cmd, configFile, env, redact, showSummary, outputFormat, ciMode)
+		return renderFromFile(cmd, configFile, env, redact, showSummary, outputFile, outputFormat, ciMode)
 	}
 
 	// Use current directory
@@ -153,18 +156,40 @@ func runRender(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	// Determine output writer
+	var writer *os.File = os.Stdout
+	if outputFile != "" {
+		f, err := os.Create(outputFile)
+		if err != nil {
+			return fmt.Errorf("failed to create output file: %w", err)
+		}
+		defer f.Close()
+		writer = f
+	}
+
 	// Output based on format
-	if !ciMode && outputFormat != "json" {
+	if !ciMode && outputFormat != "json" && outputFile == "" {
 		fmt.Fprintln(os.Stderr) // Blank line before YAML
 	}
 
 	// JSON output
 	if outputFormat == "json" {
-		return bundle.ToJSON(os.Stdout)
+		if err := bundle.ToJSON(writer); err != nil {
+			return err
+		}
+	} else {
+		// Default YAML output
+		if err := bundle.ToYAML(writer); err != nil {
+			return err
+		}
 	}
 
-	// Default YAML output
-	return bundle.ToYAML(os.Stdout)
+	// Print confirmation when writing to file
+	if outputFile != "" && !ciMode {
+		fmt.Fprintf(os.Stderr, "Wrote manifests to %s\n", outputFile)
+	}
+
+	return nil
 }
 
 // printBundleSummary prints a summary of resources in the bundle
@@ -237,7 +262,7 @@ func redactSecrets(bundle *render.Bundle) *render.Bundle {
 }
 
 // renderFromFile loads and renders a specific config file
-func renderFromFile(cmd *cobra.Command, configFile, env string, redact, showSummary bool, outputFormat string, ciMode bool) error {
+func renderFromFile(cmd *cobra.Command, configFile, env string, redact, showSummary bool, outputFile, outputFormat string, ciMode bool) error {
 	loader := config.NewLoader(".")
 
 	// Load config directly from file
@@ -287,20 +312,44 @@ func renderFromFile(cmd *cobra.Command, configFile, env string, redact, showSumm
 		return nil
 	}
 
+	// Determine output writer
+	var writer *os.File = os.Stdout
+	if outputFile != "" {
+		f, err := os.Create(outputFile)
+		if err != nil {
+			return fmt.Errorf("failed to create output file: %w", err)
+		}
+		defer f.Close()
+		writer = f
+	}
+
 	// Output
-	if !ciMode && outputFormat != "json" {
+	if !ciMode && outputFormat != "json" && outputFile == "" {
 		fmt.Fprintln(os.Stderr)
 	}
 
 	if outputFormat == "json" {
-		return bundle.ToJSON(os.Stdout)
+		if err := bundle.ToJSON(writer); err != nil {
+			return err
+		}
+	} else {
+		if err := bundle.ToYAML(writer); err != nil {
+			return err
+		}
 	}
-	return bundle.ToYAML(os.Stdout)
+
+	// Print confirmation when writing to file
+	if outputFile != "" && !ciMode {
+		fmt.Fprintf(os.Stderr, "Wrote manifests to %s\n", outputFile)
+	}
+
+	return nil
 }
 
 func init() {
 	renderCmd.Flags().StringP("env", "e", "", "Environment overlay to apply (e.g., dev, staging, prod)")
 	renderCmd.Flags().StringP("file", "f", "", "Path to kbox.yaml (default: ./kbox.yaml)")
+	renderCmd.Flags().String("out", "", "Output file path (default: stdout)")
 	renderCmd.Flags().Bool("redact", false, "Redact secret values in output (for security)")
 	renderCmd.Flags().Bool("summary", false, "Show resource summary instead of full YAML")
 	rootCmd.AddCommand(renderCmd)

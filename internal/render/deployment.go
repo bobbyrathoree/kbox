@@ -149,9 +149,10 @@ func (r *Renderer) RenderDeployment() (*appsv1.Deployment, error) {
 			Kind:       "Deployment",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: r.Namespace(),
-			Labels:    r.Labels(),
+			Name:        name,
+			Namespace:   r.Namespace(),
+			Labels:      r.Labels(),
+			Annotations: r.DeploymentAnnotations(),
 		},
 		Spec: appsv1.DeploymentSpec{
 			Replicas: &replicas,
@@ -160,7 +161,8 @@ func (r *Renderer) RenderDeployment() (*appsv1.Deployment, error) {
 			},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: r.Labels(),
+					Labels:      r.Labels(),
+					Annotations: r.PodAnnotations(),
 				},
 				Spec: corev1.PodSpec{
 					ServiceAccountName: r.config.Metadata.Name,

@@ -36,6 +36,21 @@ type AppSpec struct {
 	// Replicas count (default: 1)
 	Replicas int `yaml:"replicas,omitempty" json:"replicas,omitempty"`
 
+	// Annotations to add to all resources (merged with resource-specific annotations)
+	Annotations map[string]string `yaml:"annotations,omitempty" json:"annotations,omitempty"`
+
+	// PodAnnotations to add to pod templates (e.g., prometheus.io/scrape)
+	PodAnnotations map[string]string `yaml:"podAnnotations,omitempty" json:"podAnnotations,omitempty"`
+
+	// ServiceAnnotations to add to services (e.g., AWS ALB annotations)
+	ServiceAnnotations map[string]string `yaml:"serviceAnnotations,omitempty" json:"serviceAnnotations,omitempty"`
+
+	// DeploymentAnnotations to add to deployments
+	DeploymentAnnotations map[string]string `yaml:"deploymentAnnotations,omitempty" json:"deploymentAnnotations,omitempty"`
+
+	// Labels to add to all resources (merged with default labels)
+	Labels map[string]string `yaml:"labels,omitempty" json:"labels,omitempty"`
+
 	// Env variables
 	Env map[string]string `yaml:"env,omitempty" json:"env,omitempty"`
 

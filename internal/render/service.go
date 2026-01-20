@@ -42,9 +42,10 @@ func (r *Renderer) RenderService() (*corev1.Service, error) {
 			Kind:       "Service",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: r.Namespace(),
-			Labels:    r.Labels(),
+			Name:        name,
+			Namespace:   r.Namespace(),
+			Labels:      r.Labels(),
+			Annotations: r.ServiceAnnotations(),
 		},
 		Spec: corev1.ServiceSpec{
 			Type:     serviceType,
