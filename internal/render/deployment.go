@@ -114,6 +114,21 @@ func (r *Renderer) RenderDeployment() (*appsv1.Deployment, error) {
 	// Add container-level security context
 	container.SecurityContext = defaultContainerSecurityContext()
 
+	// Add tracing env vars if tracing is enabled
+	if cfg.Spec.Tracing != nil && cfg.Spec.Tracing.Enabled {
+		tracingEnvVars := GetTracingEnvVars(cfg.Spec.Tracing)
+		container.Env = append(container.Env, tracingEnvVars...)
+	}
+
+	// Build containers list (main + optional sidecars)
+	containers := []corev1.Container{container}
+
+	// Add tracing sidecar if enabled
+	if cfg.Spec.Tracing != nil && cfg.Spec.Tracing.Enabled {
+		tracingSidecar := RenderTracingSidecar(cfg.Spec.Tracing)
+		containers = append(containers, tracingSidecar)
+	}
+
 	// Build deployment
 	deployment := &appsv1.Deployment{
 		TypeMeta: metav1.TypeMeta{
@@ -138,7 +153,7 @@ func (r *Renderer) RenderDeployment() (*appsv1.Deployment, error) {
 					ServiceAccountName: r.config.Metadata.Name,
 					SecurityContext:    defaultPodSecurityContext(),
 					InitContainers:     r.renderInitContainers(),
-					Containers:         []corev1.Container{container},
+					Containers:         containers,
 					Volumes:            r.renderPodVolumes(),
 				},
 			},

@@ -80,6 +80,9 @@ type AppSpec struct {
 
 	// Metrics configuration for Prometheus ServiceMonitor
 	Metrics *MetricsConfig `yaml:"metrics,omitempty" json:"metrics,omitempty"`
+
+	// Tracing configuration for distributed tracing sidecar
+	Tracing *TracingConfig `yaml:"tracing,omitempty" json:"tracing,omitempty"`
 }
 
 // DependencyConfig defines a managed dependency like postgres or redis
@@ -169,6 +172,24 @@ type MetricsConfig struct {
 
 	// Interval for Prometheus scraping (default: 30s)
 	Interval string `yaml:"interval,omitempty" json:"interval,omitempty"`
+}
+
+// TracingConfig configures distributed tracing sidecar injection
+type TracingConfig struct {
+	// Enabled injects the tracing agent sidecar
+	Enabled bool `yaml:"enabled" json:"enabled"`
+
+	// Backend is the tracing backend: "jaeger" or "zipkin" (default: jaeger)
+	Backend string `yaml:"backend,omitempty" json:"backend,omitempty"`
+
+	// SamplingRate is the trace sampling rate from 0.0 to 1.0 (default: 0.1)
+	SamplingRate float64 `yaml:"samplingRate,omitempty" json:"samplingRate,omitempty"`
+
+	// CollectorEndpoint is the URL of the trace collector
+	CollectorEndpoint string `yaml:"collectorEndpoint,omitempty" json:"collectorEndpoint,omitempty"`
+
+	// AgentImage overrides the default tracing agent image
+	AgentImage string `yaml:"agentImage,omitempty" json:"agentImage,omitempty"`
 }
 
 // JobConfig defines a Job or CronJob
