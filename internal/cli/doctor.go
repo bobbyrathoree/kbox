@@ -25,9 +25,10 @@ var doctorCmd = &cobra.Command{
 }
 
 type checkResult struct {
-	name    string
-	ok      bool
-	message string
+	name     string
+	ok       bool
+	message  string
+	required bool
 }
 
 func runDoctor(cmd *cobra.Command, args []string) error {
@@ -40,12 +41,12 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 	var results []checkResult
 
 	// Check required tools
-	results = append(results, checkTool("docker", "required for building images"))
-	results = append(results, checkTool("kubectl", "required for cluster operations"))
+	results = append(results, checkTool("docker", "required for building images", true))
+	results = append(results, checkTool("kubectl", "required for cluster operations", true))
 
 	// Check optional tools
-	results = append(results, checkTool("kind", "optional, for local clusters"))
-	results = append(results, checkTool("sops", "optional, for encrypted secrets"))
+	results = append(results, checkTool("kind", "optional, for local clusters", false))
+	results = append(results, checkTool("sops", "optional, for encrypted secrets", false))
 
 	// Check kubeconfig
 	if k8s.HasKubeconfig() {
@@ -114,12 +115,15 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		results = append(results, checkPermission(ctx, client, ns, "pods/exec", "create"))
 	}
 
-	// Check for errors
+	// Check for errors (distinguish required vs optional)
 	hasErrors := false
+	hasRequiredErrors := false
 	for _, r := range results {
 		if !r.ok {
 			hasErrors = true
-			break
+			if r.required {
+				hasRequiredErrors = true
+			}
 		}
 	}
 
@@ -128,15 +132,20 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		checks := make([]map[string]interface{}, len(results))
 		for i, r := range results {
 			checks[i] = map[string]interface{}{
-				"name":    r.name,
-				"ok":      r.ok,
-				"message": r.message,
+				"name":     r.name,
+				"ok":       r.ok,
+				"message":  r.message,
+				"required": r.required,
 			}
 		}
-		return json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
-			"success": !hasErrors,
+		json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
+			"success": !hasRequiredErrors,
 			"checks":  checks,
 		})
+		if hasRequiredErrors {
+			os.Exit(1)
+		}
+		return nil
 	}
 
 	// Print text results
@@ -150,8 +159,11 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Println()
-	if hasErrors {
-		fmt.Println("Some checks failed. Fix the issues above to use kbox effectively.")
+	if hasRequiredErrors {
+		fmt.Println("Required checks failed. Fix the issues above before using kbox.")
+		return fmt.Errorf("required checks failed")
+	} else if hasErrors {
+		fmt.Println("Optional checks failed, but kbox should work. Consider installing missing tools.")
 	} else {
 		fmt.Println("All checks passed. You're ready to use kbox!")
 	}
@@ -159,13 +171,14 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func checkTool(name, description string) checkResult {
+func checkTool(name, description string, required bool) checkResult {
 	path, err := exec.LookPath(name)
 	if err != nil {
 		return checkResult{
-			name:    name,
-			ok:      false,
-			message: fmt.Sprintf("not found (%s)", description),
+			name:     name,
+			ok:       false,
+			message:  fmt.Sprintf("not found (%s)", description),
+			required: required,
 		}
 	}
 
@@ -198,9 +211,10 @@ func checkTool(name, description string) checkResult {
 	}
 
 	return checkResult{
-		name:    name,
-		ok:      true,
-		message: fmt.Sprintf("%s (%s)", version, path),
+		name:     name,
+		ok:       true,
+		message:  fmt.Sprintf("%s (%s)", version, path),
+		required: required,
 	}
 }
 

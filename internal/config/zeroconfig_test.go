@@ -130,7 +130,10 @@ func TestConfigOverridesPrecedence(t *testing.T) {
 			},
 		}
 
-		result := cfg.ForEnvironment("prod")
+		result, err := cfg.ForEnvironment("prod")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 
 		// Replicas should be overridden
 		if result.Spec.Replicas != 10 {
@@ -153,7 +156,7 @@ func TestConfigOverridesPrecedence(t *testing.T) {
 		}
 	})
 
-	t.Run("unknown environment returns base config", func(t *testing.T) {
+	t.Run("unknown environment returns error", func(t *testing.T) {
 		cfg := &AppConfig{
 			Metadata: Metadata{Name: "myapp"},
 			Spec: AppSpec{
@@ -162,10 +165,9 @@ func TestConfigOverridesPrecedence(t *testing.T) {
 			},
 		}
 
-		result := cfg.ForEnvironment("nonexistent")
-
-		if result.Spec.Replicas != 3 {
-			t.Errorf("expected base replicas 3, got %d", result.Spec.Replicas)
+		_, err := cfg.ForEnvironment("nonexistent")
+		if err == nil {
+			t.Errorf("expected error for nonexistent environment, got nil")
 		}
 	})
 }

@@ -1,11 +1,17 @@
 package config
 
+import (
+	"fmt"
+	"sort"
+	"strings"
+)
+
 // AppConfig represents the full kbox.yaml configuration
 type AppConfig struct {
-	APIVersion   string            `yaml:"apiVersion" json:"apiVersion"`
-	Kind         string            `yaml:"kind" json:"kind"`
-	Metadata     Metadata          `yaml:"metadata" json:"metadata"`
-	Spec         AppSpec           `yaml:"spec" json:"spec"`
+	APIVersion   string                 `yaml:"apiVersion" json:"apiVersion"`
+	Kind         string                 `yaml:"kind" json:"kind"`
+	Metadata     Metadata               `yaml:"metadata" json:"metadata"`
+	Spec         AppSpec                `yaml:"spec" json:"spec"`
 	Environments map[string]EnvOverride `yaml:"environments,omitempty" json:"environments,omitempty"`
 }
 
@@ -83,6 +89,9 @@ type AppSpec struct {
 
 	// Tracing configuration for distributed tracing sidecar
 	Tracing *TracingConfig `yaml:"tracing,omitempty" json:"tracing,omitempty"`
+
+	// Security allows customization of security settings
+	Security *SecurityConfig `yaml:"security,omitempty" json:"security,omitempty"`
 }
 
 // DependencyConfig defines a managed dependency like postgres or redis
@@ -190,6 +199,12 @@ type TracingConfig struct {
 
 	// AgentImage overrides the default tracing agent image
 	AgentImage string `yaml:"agentImage,omitempty" json:"agentImage,omitempty"`
+}
+
+// SecurityConfig allows customization of security settings
+type SecurityConfig struct {
+	// ReadOnlyRootFilesystem sets the container's root filesystem to read-only (default: true)
+	ReadOnlyRootFilesystem *bool `yaml:"readOnlyRootFilesystem,omitempty" json:"readOnlyRootFilesystem,omitempty"`
 }
 
 // JobConfig defines a Job or CronJob
@@ -341,11 +356,11 @@ type EnvOverride struct {
 
 // MultiServiceConfig represents a multi-service kbox.yaml configuration
 type MultiServiceConfig struct {
-	APIVersion   string                        `yaml:"apiVersion" json:"apiVersion"`
-	Kind         string                        `yaml:"kind" json:"kind"` // "MultiApp"
-	Metadata     Metadata                      `yaml:"metadata" json:"metadata"`
-	Services     map[string]ServiceSpec        `yaml:"services" json:"services"`
-	Environments map[string]MultiEnvOverride   `yaml:"environments,omitempty" json:"environments,omitempty"`
+	APIVersion   string                      `yaml:"apiVersion" json:"apiVersion"`
+	Kind         string                      `yaml:"kind" json:"kind"` // "MultiApp"
+	Metadata     Metadata                    `yaml:"metadata" json:"metadata"`
+	Services     map[string]ServiceSpec      `yaml:"services" json:"services"`
+	Environments map[string]MultiEnvOverride `yaml:"environments,omitempty" json:"environments,omitempty"`
 }
 
 // MultiEnvOverride defines environment-specific overrides for multi-service apps
@@ -446,15 +461,26 @@ func (c *AppConfig) WithDefaults() *AppConfig {
 	return c
 }
 
-// ForEnvironment returns a config merged with environment-specific overrides
-func (c *AppConfig) ForEnvironment(env string) *AppConfig {
-	if env == "" || c.Environments == nil {
-		return c
+// ForEnvironment returns a config merged with environment-specific overrides.
+// Returns an error if the specified environment does not exist in the config.
+func (c *AppConfig) ForEnvironment(env string) (*AppConfig, error) {
+	if env == "" {
+		return c, nil
+	}
+
+	if c.Environments == nil {
+		return nil, fmt.Errorf("environment %q not found (no environments defined in config)", env)
 	}
 
 	override, ok := c.Environments[env]
 	if !ok {
-		return c
+		// List available environments for helpful error
+		available := make([]string, 0, len(c.Environments))
+		for name := range c.Environments {
+			available = append(available, name)
+		}
+		sort.Strings(available)
+		return nil, fmt.Errorf("environment %q not found\n  Available: %s", env, strings.Join(available, ", "))
 	}
 
 	// Create a copy
@@ -487,5 +513,5 @@ func (c *AppConfig) ForEnvironment(env string) *AppConfig {
 		}
 	}
 
-	return &result
+	return &result, nil
 }

@@ -76,7 +76,10 @@ func runUp(cmd *cobra.Command, args []string) error {
 
 	// Apply environment overlay
 	if env != "" {
-		cfg = cfg.ForEnvironment(env)
+		cfg, err = cfg.ForEnvironment(env)
+		if err != nil {
+			return err
+		}
 		fmt.Printf("Using environment: %s\n", env)
 	}
 

@@ -72,19 +72,25 @@ func TestForEnvironment(t *testing.T) {
 	}
 
 	// Test with no environment
-	result := config.ForEnvironment("")
+	result, err := config.ForEnvironment("")
+	if err != nil {
+		t.Errorf("unexpected error for empty env: %v", err)
+	}
 	if result.Spec.Replicas != 1 {
 		t.Errorf("expected replicas 1 for empty env, got %d", result.Spec.Replicas)
 	}
 
-	// Test with non-existent environment
-	result = config.ForEnvironment("staging")
-	if result.Spec.Replicas != 1 {
-		t.Errorf("expected replicas 1 for unknown env, got %d", result.Spec.Replicas)
+	// Test with non-existent environment - should return error
+	_, err = config.ForEnvironment("staging")
+	if err == nil {
+		t.Errorf("expected error for unknown env 'staging', got nil")
 	}
 
 	// Test with prod environment
-	result = config.ForEnvironment("prod")
+	result, err = config.ForEnvironment("prod")
+	if err != nil {
+		t.Errorf("unexpected error for prod env: %v", err)
+	}
 	if result.Spec.Replicas != 5 {
 		t.Errorf("expected replicas 5 for prod, got %d", result.Spec.Replicas)
 	}
@@ -93,5 +99,21 @@ func TestForEnvironment(t *testing.T) {
 	}
 	if result.Spec.Env["NEW_VAR"] != "value" {
 		t.Errorf("expected NEW_VAR to be added")
+	}
+}
+
+func TestForEnvironment_NoEnvironmentsDefined(t *testing.T) {
+	config := &AppConfig{
+		Metadata: Metadata{Name: "myapp"},
+		Spec: AppSpec{
+			Image:    "myapp:v1",
+			Replicas: 1,
+		},
+		// No Environments defined
+	}
+
+	_, err := config.ForEnvironment("prod")
+	if err == nil {
+		t.Errorf("expected error when no environments defined, got nil")
 	}
 }

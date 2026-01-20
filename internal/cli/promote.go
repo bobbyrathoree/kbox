@@ -120,7 +120,10 @@ func runPromote(cmd *cobra.Command, args []string) error {
 	}
 
 	// Apply target environment overlay
-	targetCfg := cfg.ForEnvironment(targetEnv)
+	targetCfg, err := cfg.ForEnvironment(targetEnv)
+	if err != nil {
+		return err
+	}
 	targetCfg.Metadata.Namespace = targetNS
 
 	// Use source image if not overridden

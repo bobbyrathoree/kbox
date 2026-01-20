@@ -3,6 +3,8 @@ package config
 import (
 	"fmt"
 	"os"
+	"sort"
+	"strings"
 
 	"sigs.k8s.io/yaml"
 )
@@ -208,15 +210,26 @@ func checkCircularDeps(services map[string]ServiceSpec) error {
 	return nil
 }
 
-// ForEnvironment returns a config merged with environment-specific overrides
-func (c *MultiServiceConfig) ForEnvironment(env string) *MultiServiceConfig {
-	if env == "" || c.Environments == nil {
-		return c
+// ForEnvironment returns a config merged with environment-specific overrides.
+// Returns an error if the specified environment does not exist in the config.
+func (c *MultiServiceConfig) ForEnvironment(env string) (*MultiServiceConfig, error) {
+	if env == "" {
+		return c, nil
+	}
+
+	if c.Environments == nil {
+		return nil, fmt.Errorf("environment %q not found (no environments defined in config)", env)
 	}
 
 	override, ok := c.Environments[env]
 	if !ok {
-		return c
+		// List available environments for helpful error
+		available := make([]string, 0, len(c.Environments))
+		for name := range c.Environments {
+			available = append(available, name)
+		}
+		sort.Strings(available)
+		return nil, fmt.Errorf("environment %q not found\n  Available: %s", env, strings.Join(available, ", "))
 	}
 
 	// Create a deep copy of the config
@@ -259,7 +272,7 @@ func (c *MultiServiceConfig) ForEnvironment(env string) *MultiServiceConfig {
 		}
 	}
 
-	return &result
+	return &result, nil
 }
 
 // ToAppConfig converts a single service from MultiServiceConfig to AppConfig

@@ -54,7 +54,10 @@ Use this before 'kbox deploy' to verify what will happen.`,
 
 			// Apply environment overlay
 			if environment != "" {
-				cfg = cfg.ForEnvironment(environment)
+				cfg, err = cfg.ForEnvironment(environment)
+				if err != nil {
+					return err
+				}
 			}
 
 			// Apply defaults

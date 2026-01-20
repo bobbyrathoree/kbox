@@ -123,6 +123,78 @@ func Validate(config *AppConfig) error {
 		}
 	}
 
+	// Validate autoscaling
+	if config.Spec.Autoscaling != nil && config.Spec.Autoscaling.Enabled {
+		as := config.Spec.Autoscaling
+		if as.MinReplicas < 0 {
+			errs = append(errs, ValidationError{
+				Field:   "spec.autoscaling.minReplicas",
+				Message: "must be non-negative",
+			})
+		}
+		if as.MaxReplicas < 1 {
+			errs = append(errs, ValidationError{
+				Field:   "spec.autoscaling.maxReplicas",
+				Message: "must be at least 1",
+			})
+		}
+		if as.MinReplicas > as.MaxReplicas {
+			errs = append(errs, ValidationError{
+				Field:   "spec.autoscaling",
+				Message: fmt.Sprintf("minReplicas (%d) cannot exceed maxReplicas (%d)", as.MinReplicas, as.MaxReplicas),
+			})
+		}
+		if as.TargetCPUUtilization != 0 && (as.TargetCPUUtilization < 1 || as.TargetCPUUtilization > 100) {
+			errs = append(errs, ValidationError{
+				Field:   "spec.autoscaling.targetCPUUtilization",
+				Message: "must be between 1 and 100",
+			})
+		}
+	}
+
+	// Validate init containers have commands
+	for i, ic := range config.Spec.InitContainers {
+		if len(ic.Command) == 0 {
+			errs = append(errs, ValidationError{
+				Field:   fmt.Sprintf("spec.initContainers[%d].command", i),
+				Message: "command is required for init containers",
+			})
+		}
+	}
+
+	// Validate volumes have a source
+	for i, vol := range config.Spec.Volumes {
+		hasSource := vol.Size != "" || vol.EmptyDir || vol.ConfigMap != "" || vol.Secret != ""
+		if !hasSource {
+			errs = append(errs, ValidationError{
+				Field:   fmt.Sprintf("spec.volumes[%d]", i),
+				Message: "volume must have a source (size, emptyDir, configMap, or secret)",
+			})
+		}
+	}
+
+	// Validate PDB doesn't have both minAvailable and maxUnavailable
+	if config.Spec.PDB != nil {
+		if config.Spec.PDB.MinAvailable != "" && config.Spec.PDB.MaxUnavailable != "" {
+			errs = append(errs, ValidationError{
+				Field:   "spec.pdb",
+				Message: "cannot specify both minAvailable and maxUnavailable",
+			})
+		}
+	}
+
+	// Validate no duplicate dependencies
+	seenDeps := make(map[string]bool)
+	for i, dep := range config.Spec.Dependencies {
+		if seenDeps[dep.Type] {
+			errs = append(errs, ValidationError{
+				Field:   fmt.Sprintf("spec.dependencies[%d]", i),
+				Message: fmt.Sprintf("duplicate dependency type: %s", dep.Type),
+			})
+		}
+		seenDeps[dep.Type] = true
+	}
+
 	// Validate resource quantities
 	if config.Spec.Resources != nil {
 		res := config.Spec.Resources

@@ -219,6 +219,20 @@ func (r *Renderer) RenderDependency(dep config.DependencyConfig) (*DependencyRes
 		}
 	}
 
+	// Add data directory environment variables for databases that need them
+	switch dep.Type {
+	case "postgres":
+		statefulSet.Spec.Template.Spec.Containers[0].Env = append(
+			statefulSet.Spec.Template.Spec.Containers[0].Env,
+			corev1.EnvVar{Name: "PGDATA", Value: "/var/lib/postgresql/data/pgdata"},
+		)
+	case "mysql":
+		statefulSet.Spec.Template.Spec.Containers[0].Env = append(
+			statefulSet.Spec.Template.Spec.Containers[0].Env,
+			corev1.EnvVar{Name: "MYSQL_DATADIR", Value: "/var/lib/mysql/data"},
+		)
+	}
+
 	// Add readiness probe
 	if len(template.HealthCheck) > 0 {
 		statefulSet.Spec.Template.Spec.Containers[0].ReadinessProbe = &corev1.Probe{
@@ -375,9 +389,11 @@ func dependencyPodSecurityContext(depType string) *corev1.PodSecurityContext {
 func getDataPath(depType string) string {
 	switch depType {
 	case "postgres":
-		return "/var/lib/postgresql/data"
+		// Use subdirectory to avoid lost+found breaking initdb
+		return "/var/lib/postgresql/data/pgdata"
 	case "mysql":
-		return "/var/lib/mysql"
+		// Use subdirectory to avoid lost+found breaking mysql init
+		return "/var/lib/mysql/data"
 	case "mongodb":
 		return "/data/db"
 	case "redis":

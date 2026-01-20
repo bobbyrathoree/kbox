@@ -224,3 +224,81 @@ func TestImageWithTag(t *testing.T) {
 		})
 	}
 }
+
+func TestRenderDeploymentSecurityConfig(t *testing.T) {
+	// Helper to create bool pointer
+	boolPtr := func(b bool) *bool { return &b }
+
+	tests := []struct {
+		name                     string
+		security                 *config.SecurityConfig
+		expectedReadOnlyRootFS   bool
+	}{
+		{
+			name:                   "default (no security config) - readOnlyRootFilesystem is true",
+			security:               nil,
+			expectedReadOnlyRootFS: true,
+		},
+		{
+			name:                   "security config with nil ReadOnlyRootFilesystem - defaults to true",
+			security:               &config.SecurityConfig{},
+			expectedReadOnlyRootFS: true,
+		},
+		{
+			name:                   "security config with ReadOnlyRootFilesystem=true",
+			security:               &config.SecurityConfig{ReadOnlyRootFilesystem: boolPtr(true)},
+			expectedReadOnlyRootFS: true,
+		},
+		{
+			name:                   "security config with ReadOnlyRootFilesystem=false (for nginx, etc.)",
+			security:               &config.SecurityConfig{ReadOnlyRootFilesystem: boolPtr(false)},
+			expectedReadOnlyRootFS: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.AppConfig{
+				APIVersion: config.DefaultAPIVersion,
+				Kind:       config.DefaultKind,
+				Metadata: config.Metadata{
+					Name: "myapp",
+				},
+				Spec: config.AppSpec{
+					Image:    "nginx:latest",
+					Port:     80,
+					Replicas: 1,
+					Security: tt.security,
+				},
+			}
+
+			renderer := New(cfg)
+			dep, err := renderer.RenderDeployment()
+			if err != nil {
+				t.Fatalf("failed to render deployment: %v", err)
+			}
+
+			container := dep.Spec.Template.Spec.Containers[0]
+			if container.SecurityContext == nil {
+				t.Fatal("expected SecurityContext to be set")
+			}
+
+			if container.SecurityContext.ReadOnlyRootFilesystem == nil {
+				t.Fatal("expected ReadOnlyRootFilesystem to be set")
+			}
+
+			if *container.SecurityContext.ReadOnlyRootFilesystem != tt.expectedReadOnlyRootFS {
+				t.Errorf("expected ReadOnlyRootFilesystem=%v, got %v",
+					tt.expectedReadOnlyRootFS, *container.SecurityContext.ReadOnlyRootFilesystem)
+			}
+
+			// Always verify other security settings are still applied
+			if container.SecurityContext.AllowPrivilegeEscalation == nil || *container.SecurityContext.AllowPrivilegeEscalation {
+				t.Error("expected AllowPrivilegeEscalation to be false")
+			}
+			if container.SecurityContext.Capabilities == nil || len(container.SecurityContext.Capabilities.Drop) == 0 {
+				t.Error("expected Capabilities.Drop to include ALL")
+			}
+		})
+	}
+}

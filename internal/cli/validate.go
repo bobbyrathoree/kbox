@@ -82,8 +82,10 @@ func runValidate(cmd *cobra.Command, args []string) error {
 		if err := enc.Encode(result); err != nil {
 			return err
 		}
+		// Exit with code 1 to indicate failure, don't return error
+		// (returning error would print text after JSON, breaking parsers)
 		if !result.Valid {
-			return fmt.Errorf("validation failed")
+			os.Exit(1)
 		}
 		return nil
 	}

@@ -54,7 +54,10 @@ environments:
 	}
 
 	// Check prod environment
-	prodConfig := config.ForEnvironment("prod")
+	prodConfig, err := config.ForEnvironment("prod")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if prodConfig.Spec.Replicas != 5 {
 		t.Errorf("expected prod replicas 5, got %d", prodConfig.Spec.Replicas)
 	}

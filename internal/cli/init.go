@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"sigs.k8s.io/yaml"
@@ -154,7 +156,25 @@ func runInit(opts initOptions) error {
 
 	// If name is still empty, use directory name
 	if cfg.Metadata.Name == "" {
-		cfg.Metadata.Name = filepath.Base(workDir)
+		name := filepath.Base(workDir)
+		// Sanitize for Kubernetes DNS-1123 naming
+		sanitized := strings.ToLower(name)
+		sanitized = strings.ReplaceAll(sanitized, " ", "-")
+		sanitized = strings.ReplaceAll(sanitized, "_", "-")
+		// Remove any invalid characters
+		reg := regexp.MustCompile(`[^a-z0-9-]`)
+		sanitized = reg.ReplaceAllString(sanitized, "")
+		// Trim leading/trailing hyphens
+		sanitized = strings.Trim(sanitized, "-")
+		// Truncate to 63 chars
+		if len(sanitized) > 63 {
+			sanitized = sanitized[:63]
+		}
+		// Print note if name was sanitized
+		if sanitized != name {
+			fmt.Fprintf(os.Stderr, "Note: sanitized app name from %q to %q\n", name, sanitized)
+		}
+		cfg.Metadata.Name = sanitized
 	}
 
 	// If namespace specified

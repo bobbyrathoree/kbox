@@ -102,7 +102,10 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 
 		// Apply environment overlay
 		if env != "" {
-			multiCfg = multiCfg.ForEnvironment(env)
+			multiCfg, err = multiCfg.ForEnvironment(env)
+			if err != nil {
+				return finalize(err)
+			}
 		}
 
 		// Override namespace if specified
@@ -141,7 +144,10 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 
 		// Apply environment overlay
 		if env != "" {
-			cfg = cfg.ForEnvironment(env)
+			cfg, err = cfg.ForEnvironment(env)
+			if err != nil {
+				return finalize(err)
+			}
 		}
 
 		// Override namespace if specified
@@ -453,7 +459,10 @@ func deployFromFile(cmd *cobra.Command, configFile, env, namespace, kubeContext 
 
 	// Apply environment overlay
 	if env != "" {
-		cfg = cfg.ForEnvironment(env)
+		cfg, err = cfg.ForEnvironment(env)
+		if err != nil {
+			return finalize(err)
+		}
 	}
 
 	// Override namespace if specified

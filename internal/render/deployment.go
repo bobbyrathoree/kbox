@@ -31,11 +31,11 @@ func defaultPodSecurityContext() *corev1.PodSecurityContext {
 	}
 }
 
-// defaultContainerSecurityContext returns a secure container-level security context
-// that prevents privilege escalation and drops all capabilities
-func defaultContainerSecurityContext() *corev1.SecurityContext {
+// containerSecurityContext returns a secure container-level security context
+// that prevents privilege escalation and drops all capabilities.
+// The readOnlyRootFilesystem parameter controls whether the root filesystem is read-only.
+func containerSecurityContext(readOnlyRootFilesystem bool) *corev1.SecurityContext {
 	allowPrivilegeEscalation := false
-	readOnlyRootFilesystem := true
 
 	return &corev1.SecurityContext{
 		AllowPrivilegeEscalation: &allowPrivilegeEscalation,
@@ -44,6 +44,13 @@ func defaultContainerSecurityContext() *corev1.SecurityContext {
 			Drop: []corev1.Capability{"ALL"},
 		},
 	}
+}
+
+// defaultContainerSecurityContext returns a secure container-level security context
+// that prevents privilege escalation and drops all capabilities.
+// This is a convenience wrapper that defaults to read-only root filesystem.
+func defaultContainerSecurityContext() *corev1.SecurityContext {
+	return containerSecurityContext(true)
 }
 
 // RenderDeployment renders a Kubernetes Deployment from the config
@@ -111,8 +118,14 @@ func (r *Renderer) RenderDeployment() (*appsv1.Deployment, error) {
 		container.VolumeMounts = r.renderVolumeMounts()
 	}
 
+	// Determine if readOnlyRootFilesystem should be enabled
+	readOnlyFS := true // default
+	if cfg.Spec.Security != nil && cfg.Spec.Security.ReadOnlyRootFilesystem != nil {
+		readOnlyFS = *cfg.Spec.Security.ReadOnlyRootFilesystem
+	}
+
 	// Add container-level security context
-	container.SecurityContext = defaultContainerSecurityContext()
+	container.SecurityContext = containerSecurityContext(readOnlyFS)
 
 	// Add tracing env vars if tracing is enabled
 	if cfg.Spec.Tracing != nil && cfg.Spec.Tracing.Enabled {

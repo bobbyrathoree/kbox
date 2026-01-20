@@ -76,7 +76,10 @@ func runRender(cmd *cobra.Command, args []string) error {
 
 		// Apply environment overlay
 		if env != "" {
-			multiCfg = multiCfg.ForEnvironment(env)
+			multiCfg, err = multiCfg.ForEnvironment(env)
+			if err != nil {
+				return err
+			}
 			if !ciMode {
 				fmt.Fprintf(os.Stderr, "Using environment: %s\n", env)
 			}
@@ -109,7 +112,10 @@ func runRender(cmd *cobra.Command, args []string) error {
 
 		// Apply environment overlay
 		if env != "" {
-			cfg = cfg.ForEnvironment(env)
+			cfg, err = cfg.ForEnvironment(env)
+			if err != nil {
+				return err
+			}
 			if !ciMode {
 				fmt.Fprintf(os.Stderr, "Using environment: %s\n", env)
 			}
@@ -254,7 +260,10 @@ func renderFromFile(cmd *cobra.Command, configFile, env string, redact, showSumm
 
 	// Apply environment overlay
 	if env != "" {
-		cfg = cfg.ForEnvironment(env)
+		cfg, err = cfg.ForEnvironment(env)
+		if err != nil {
+			return err
+		}
 		if !ciMode {
 			fmt.Fprintf(os.Stderr, "Using environment: %s\n", env)
 		}
