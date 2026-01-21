@@ -265,7 +265,37 @@ type BuildConfig struct {
 
 	// Args for build-time variables
 	Args map[string]string `yaml:"args,omitempty" json:"args,omitempty"`
+
+	// Push configuration for registry push
+	Push *PushConfig `yaml:"push,omitempty" json:"push,omitempty"`
+
+	// Tag strategy for image tagging (kbox-timestamp, git-sha, git-tag, latest)
+	Tag string `yaml:"tag,omitempty" json:"tag,omitempty"`
 }
+
+// PushConfig defines image push configuration
+type PushConfig struct {
+	// Enabled controls push behavior: auto, always, never (default: auto)
+	Enabled string `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+
+	// Registry is the target registry URL (e.g., 123456789.dkr.ecr.us-east-1.amazonaws.com/my-app)
+	Registry string `yaml:"registry,omitempty" json:"registry,omitempty"`
+}
+
+// Tag strategy constants
+const (
+	TagKboxTimestamp = "kbox-timestamp"
+	TagGitSha        = "git-sha"
+	TagGitTag        = "git-tag"
+	TagLatest        = "latest"
+)
+
+// Push behavior constants
+const (
+	PushAuto   = "auto"
+	PushAlways = "always"
+	PushNever  = "never"
+)
 
 // SecretsConfig defines secret sources
 type SecretsConfig struct {
@@ -274,6 +304,63 @@ type SecretsConfig struct {
 
 	// FromSops loads secrets from sops-encrypted files (v0.2+)
 	FromSops []string `yaml:"fromSops,omitempty" json:"fromSops,omitempty"`
+
+	// External configures ExternalSecret CRD generation for External Secrets Operator
+	External *ExternalSecretConfig `yaml:"external,omitempty" json:"external,omitempty"`
+
+	// FromSecrets references existing Kubernetes secrets
+	FromSecrets []SecretRef `yaml:"fromSecrets,omitempty" json:"fromSecrets,omitempty"`
+}
+
+// ExternalSecretConfig defines configuration for External Secrets Operator integration
+type ExternalSecretConfig struct {
+	// StoreRef references the SecretStore or ClusterSecretStore
+	StoreRef SecretStoreRef `yaml:"storeRef" json:"storeRef"`
+
+	// RefreshInterval specifies how often to refresh secrets (default: 1h)
+	RefreshInterval string `yaml:"refreshInterval,omitempty" json:"refreshInterval,omitempty"`
+
+	// Data specifies individual secret key mappings
+	Data []ExternalSecretData `yaml:"data,omitempty" json:"data,omitempty"`
+
+	// DataFrom extracts all keys from a remote secret
+	DataFrom []ExternalSecretDataFrom `yaml:"dataFrom,omitempty" json:"dataFrom,omitempty"`
+}
+
+// SecretStoreRef references a SecretStore or ClusterSecretStore
+type SecretStoreRef struct {
+	// Name of the SecretStore/ClusterSecretStore
+	Name string `yaml:"name" json:"name"`
+
+	// Kind is either SecretStore or ClusterSecretStore (default: ClusterSecretStore)
+	Kind string `yaml:"kind,omitempty" json:"kind,omitempty"`
+}
+
+// ExternalSecretData maps a remote secret key to a local env var
+type ExternalSecretData struct {
+	// EnvVar is the container environment variable name
+	EnvVar string `yaml:"envVar" json:"envVar"`
+
+	// RemoteKey is the path/key in the secret provider
+	RemoteKey string `yaml:"remoteKey" json:"remoteKey"`
+
+	// Property extracts a specific JSON property from the secret value
+	Property string `yaml:"property,omitempty" json:"property,omitempty"`
+}
+
+// ExternalSecretDataFrom extracts all keys from a remote secret
+type ExternalSecretDataFrom struct {
+	// RemoteKey is the path/key in the secret provider to extract all keys from
+	RemoteKey string `yaml:"remoteKey" json:"remoteKey"`
+}
+
+// SecretRef references an existing Kubernetes secret
+type SecretRef struct {
+	// Name of the existing secret
+	Name string `yaml:"name" json:"name"`
+
+	// Optional marks the secret reference as optional
+	Optional bool `yaml:"optional,omitempty" json:"optional,omitempty"`
 }
 
 // ResourceConfig defines resource requests/limits

@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/bobbyrathoree/kbox/internal/k8s"
 	"github.com/spf13/cobra"
 	authv1 "k8s.io/api/authorization/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/discovery"
 )
 
 var doctorCmd = &cobra.Command{
@@ -113,6 +115,9 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		results = append(results, checkPermission(ctx, client, ns, "services", "create"))
 		results = append(results, checkPermission(ctx, client, ns, "configmaps", "create"))
 		results = append(results, checkPermission(ctx, client, ns, "pods/exec", "create"))
+
+		// Check for External Secrets Operator CRD (optional)
+		results = append(results, checkCRD(ctx, client, "externalsecrets.external-secrets.io", "optional, for External Secrets Operator integration"))
 	}
 
 	// Check for errors (distinguish required vs optional)
@@ -250,6 +255,54 @@ func checkPermission(ctx context.Context, client *k8s.Client, namespace, resourc
 		name:    fmt.Sprintf("permission: %s %s", verb, resource),
 		ok:      false,
 		message: "denied",
+	}
+}
+
+func checkCRD(ctx context.Context, client *k8s.Client, crdName, description string) checkResult {
+	// Use discovery client to check if CRD exists
+	_, resources, err := client.Clientset.Discovery().ServerGroupsAndResources()
+	if err != nil {
+		// Partial errors are ok (some groups may be unavailable)
+		if _, ok := err.(*discovery.ErrGroupDiscoveryFailed); !ok {
+			return checkResult{
+				name:     fmt.Sprintf("CRD: %s", crdName),
+				ok:       false,
+				message:  fmt.Sprintf("discovery failed: %v", err),
+				required: false,
+			}
+		}
+	}
+
+	// Look for the CRD in the API resources
+	crdFound := false
+	for _, resourceList := range resources {
+		for _, resource := range resourceList.APIResources {
+			// Check if this matches our CRD (group/resource name pattern)
+			// Use prefix match to support any version (v1beta1, v1, etc.)
+			if strings.HasPrefix(resourceList.GroupVersion, "external-secrets.io/") && resource.Name == "externalsecrets" {
+				crdFound = true
+				break
+			}
+		}
+		if crdFound {
+			break
+		}
+	}
+
+	if crdFound {
+		return checkResult{
+			name:     fmt.Sprintf("CRD: %s", crdName),
+			ok:       true,
+			message:  "installed",
+			required: false,
+		}
+	}
+
+	return checkResult{
+		name:     fmt.Sprintf("CRD: %s", crdName),
+		ok:       false,
+		message:  fmt.Sprintf("not found (%s)", description),
+		required: false,
 	}
 }
 

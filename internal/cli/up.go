@@ -8,7 +8,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
-	"time"
 
 	"github.com/spf13/cobra"
 
@@ -28,15 +27,28 @@ var upCmd = &cobra.Command{
 Works with just a Dockerfile:
   1. Detects settings from Dockerfile (EXPOSE port, etc.)
   2. Builds a container image
-  3. Loads it into your local cluster (kind/minikube)
+  3. Loads it into your local cluster (kind/minikube) or pushes to registry
   4. Deploys and streams logs
 
 If kbox.yaml exists, it will use that for additional configuration.
 
+Push Behavior:
+  For local clusters (kind, minikube, docker-desktop): Images are loaded directly
+  For remote clusters (EKS, GKE, etc.): Images are pushed to registry (--registry required)
+
+Tag Strategies:
+  kbox-timestamp  Uses Unix timestamp (default)
+  git-sha         Uses short git commit SHA
+  git-tag         Uses exact git tag
+  latest          Always uses "latest" tag
+
 Examples:
-  kbox up              # Build and deploy current directory
-  kbox up -e dev       # With environment overlay
-  kbox up --no-logs    # Deploy without streaming logs`,
+  kbox up                                     # Build and deploy current directory
+  kbox up -e dev                              # With environment overlay
+  kbox up --no-logs                           # Deploy without streaming logs
+  kbox up --push --registry ecr.io/myapp      # Build, push, and deploy
+  kbox up --no-push                           # Force local load (no push)
+  kbox up --tag git-sha                       # Use git commit SHA as tag`,
 	RunE: runUp,
 }
 
@@ -45,6 +57,28 @@ func runUp(cmd *cobra.Command, args []string) error {
 	noLogs, _ := cmd.Flags().GetBool("no-logs")
 	namespace, _ := cmd.Flags().GetString("namespace")
 	kubeContext, _ := cmd.Flags().GetString("context")
+	pushFlag, _ := cmd.Flags().GetBool("push")
+	noPushFlag, _ := cmd.Flags().GetBool("no-push")
+	registry, _ := cmd.Flags().GetString("registry")
+	tagStrategy, _ := cmd.Flags().GetString("tag")
+
+	// Validate conflicting flags
+	if pushFlag && noPushFlag {
+		return fmt.Errorf("cannot specify both --push and --no-push")
+	}
+
+	// Validate tag strategy if provided
+	if tagStrategy != "" {
+		validStrategies := map[string]bool{
+			config.TagKboxTimestamp: true,
+			config.TagGitSha:        true,
+			config.TagGitTag:        true,
+			config.TagLatest:        true,
+		}
+		if !validStrategies[tagStrategy] {
+			return fmt.Errorf("invalid tag strategy %q, must be one of: kbox-timestamp, git-sha, git-tag, latest", tagStrategy)
+		}
+	}
 
 	// Get working directory
 	workDir, err := os.Getwd()
@@ -102,22 +136,58 @@ func runUp(cmd *cobra.Command, args []string) error {
 		targetNS = client.Namespace
 	}
 
+	// Determine tag strategy (CLI flag > config > default)
+	if tagStrategy == "" && cfg.Spec.Build != nil && cfg.Spec.Build.Tag != "" {
+		tagStrategy = cfg.Spec.Build.Tag
+	}
+
+	// Determine registry (CLI flag > env var > config)
+	if registry == "" {
+		registry = os.Getenv("KBOX_REGISTRY")
+	}
+	if registry == "" && cfg.Spec.Build != nil && cfg.Spec.Build.Push != nil {
+		registry = cfg.Spec.Build.Push.Registry
+	}
+
+	// Determine if we should push based on cluster type
+	shouldPush, err := determinePushBehavior(client.Context, pushFlag, noPushFlag, cfg)
+	if err != nil {
+		return err
+	}
+
+	// If pushing to remote, registry is required
+	if shouldPush && registry == "" {
+		return fmt.Errorf("--registry is required when pushing to remote clusters\n  → Use --registry <registry-url> or set KBOX_REGISTRY env var")
+	}
+
 	// Generate image tag
-	imageTag := fmt.Sprintf("%s:kbox-%d", appName, time.Now().Unix())
+	imageTag, err := generateImageTag(appName, tagStrategy, registry)
+	if err != nil {
+		return fmt.Errorf("failed to generate image tag: %w", err)
+	}
 
 	// Build image
 	fmt.Printf("Building image: %s\n", imageTag)
-	if err := buildImage(cmd.Context(), workDir, imageTag); err != nil {
+	if err := buildImageWithConfig(cmd.Context(), workDir, imageTag, cfg.Spec.Build); err != nil {
 		return fmt.Errorf("build failed: %w", err)
 	}
 	fmt.Println("  ✓ Image built")
 
-	// Load into cluster (detect kind/minikube)
-	if err := loadImage(cmd.Context(), client.Context, imageTag); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to load image into cluster: %v\n", err)
-		fmt.Fprintf(os.Stderr, "If using a remote cluster, ensure the image is pushed to a registry.\n")
+	// Either push to registry or load into local cluster
+	if shouldPush {
+		fmt.Printf("Pushing image: %s\n", imageTag)
+		if err := pushImage(cmd.Context(), imageTag); err != nil {
+			return fmt.Errorf("push failed: %w", err)
+		}
+		fmt.Println("  ✓ Image pushed to registry")
 	} else {
-		fmt.Println("  ✓ Image loaded into cluster")
+		// Load into cluster (detect kind/minikube)
+		if err := loadImage(cmd.Context(), client.Context, imageTag); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to load image into cluster: %v\n", err)
+			fmt.Fprintf(os.Stderr, "If using a remote cluster, ensure the image is pushed to a registry.\n")
+		} else {
+			fmt.Println("  ✓ Image loaded into cluster")
+		}
 	}
 
 	// Update config with built image
@@ -200,15 +270,6 @@ func runUp(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func buildImage(ctx context.Context, workDir, tag string) error {
-	// Use docker build
-	cmd := exec.CommandContext(ctx, "docker", "build", "-t", tag, ".")
-	cmd.Dir = workDir
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
-}
-
 func loadImage(ctx context.Context, kubeContext, imageTag string) error {
 	// Detect if it's a kind cluster
 	if isKindCluster(kubeContext) {
@@ -255,8 +316,22 @@ func isMinikubeCluster(context string) bool {
 	return context == "minikube"
 }
 
+func isDockerDesktop(kubeContext string) bool {
+	return kubeContext == "docker-desktop" || kubeContext == "docker-for-desktop"
+}
+
+func isLocalCluster(kubeContext string) bool {
+	return isKindCluster(kubeContext) ||
+		isMinikubeCluster(kubeContext) ||
+		isDockerDesktop(kubeContext)
+}
+
 func init() {
 	upCmd.Flags().StringP("env", "e", "", "Environment overlay to apply")
 	upCmd.Flags().Bool("no-logs", false, "Don't stream logs after deploy")
+	upCmd.Flags().Bool("push", false, "Push image to registry (required for remote clusters)")
+	upCmd.Flags().Bool("no-push", false, "Force local load, don't push to registry")
+	upCmd.Flags().String("registry", "", "Target registry for push (e.g., ecr.io/myapp)")
+	upCmd.Flags().String("tag", "", "Tag strategy: kbox-timestamp, git-sha, git-tag, latest")
 	rootCmd.AddCommand(upCmd)
 }

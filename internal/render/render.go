@@ -31,6 +31,7 @@ type Bundle struct {
 	HPA                    *autoscalingv2.HorizontalPodAutoscaler
 	PDB                    *policyv1.PodDisruptionBudget
 	ServiceMonitors        []*unstructured.Unstructured
+	ExternalSecrets        []*unstructured.Unstructured
 	// Deployment is kept for backward compatibility (points to first deployment)
 	Deployment *appsv1.Deployment
 }
@@ -99,6 +100,10 @@ func (b *Bundle) AllObjects() []runtime.Object {
 	// ServiceMonitors for Prometheus (optional observability)
 	for _, sm := range b.ServiceMonitors {
 		objects = append(objects, sm)
+	}
+	// ExternalSecrets for External Secrets Operator
+	for _, es := range b.ExternalSecrets {
+		objects = append(objects, es)
 	}
 
 	return objects
@@ -250,6 +255,11 @@ func (r *Renderer) Render() (*Bundle, error) {
 	// Render ServiceMonitor for Prometheus if metrics enabled
 	if sm := r.RenderServiceMonitor(); sm != nil {
 		bundle.ServiceMonitors = append(bundle.ServiceMonitors, sm)
+	}
+
+	// Render ExternalSecret for External Secrets Operator if configured
+	if es := r.RenderExternalSecret(); es != nil {
+		bundle.ExternalSecrets = append(bundle.ExternalSecrets, es)
 	}
 
 	return bundle, nil

@@ -231,6 +231,37 @@ func (r *Renderer) renderEnvFrom() []corev1.EnvFromSource {
 		})
 	}
 
+	// Add secret reference for ExternalSecret target if configured
+	// Only add if ExternalSecret will actually be generated (has data/dataFrom and valid storeRef)
+	if r.config.Spec.Secrets != nil && r.config.Spec.Secrets.External != nil {
+		ext := r.config.Spec.Secrets.External
+		if (len(ext.Data) > 0 || len(ext.DataFrom) > 0) && ext.StoreRef.Name != "" {
+			secretName := r.ExternalSecretTargetName()
+			envFrom = append(envFrom, corev1.EnvFromSource{
+				SecretRef: &corev1.SecretEnvSource{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: secretName,
+					},
+				},
+			})
+		}
+	}
+
+	// Add references to existing secrets (fromSecrets)
+	if r.config.Spec.Secrets != nil {
+		for _, ref := range r.config.Spec.Secrets.FromSecrets {
+			optional := ref.Optional
+			envFrom = append(envFrom, corev1.EnvFromSource{
+				SecretRef: &corev1.SecretEnvSource{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: ref.Name,
+					},
+					Optional: &optional,
+				},
+			})
+		}
+	}
+
 	return envFrom
 }
 
