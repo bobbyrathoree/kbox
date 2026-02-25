@@ -195,6 +195,27 @@ func Validate(config *AppConfig) error {
 		seenDeps[dep.Type] = true
 	}
 
+	// Validate dependency types
+	supportedTypes := map[string]bool{
+		"postgres": true, "redis": true, "mongodb": true, "mysql": true,
+	}
+	for i, dep := range config.Spec.Dependencies {
+		if !supportedTypes[dep.Type] {
+			errs = append(errs, ValidationError{
+				Field:   fmt.Sprintf("spec.dependencies[%d].type", i),
+				Message: fmt.Sprintf("unsupported dependency type %q (supported: postgres, redis, mongodb, mysql)", dep.Type),
+			})
+		}
+	}
+
+	// Validate health check path format
+	if config.Spec.HealthCheck != "" && !strings.HasPrefix(config.Spec.HealthCheck, "/") {
+		errs = append(errs, ValidationError{
+			Field:   "spec.healthCheck",
+			Message: fmt.Sprintf("path must start with '/', got %q", config.Spec.HealthCheck),
+		})
+	}
+
 	// Validate resource quantities
 	if config.Spec.Resources != nil {
 		res := config.Spec.Resources

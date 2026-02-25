@@ -49,6 +49,15 @@ func (r *Renderer) RenderNetworkPolicy() *networkingv1.NetworkPolicy {
 						},
 					},
 				},
+				{
+					// Allow external traffic on app port (for ingress controllers, load balancers)
+					Ports: []networkingv1.NetworkPolicyPort{
+						{
+							Protocol: &tcp,
+							Port:     &intstr.IntOrString{Type: intstr.Int, IntVal: int32(r.config.Spec.Port)},
+						},
+					},
+				},
 			},
 			Egress: []networkingv1.NetworkPolicyEgressRule{
 				{

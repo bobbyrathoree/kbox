@@ -64,7 +64,7 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 		if outputFormat == "json" {
 			output.NewWriter(os.Stdout, outputFormat, ciMode).WriteDeployResult(result)
 			if !result.Success {
-				os.Exit(1)
+				return fmt.Errorf("deploy failed")
 			}
 			return nil
 		}
@@ -89,6 +89,7 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 	var bundle *render.Bundle
 	var appName string
 	var targetNamespace string
+	var cfgForHistory *config.AppConfig
 
 	if isMulti {
 		// Handle multi-service config
@@ -113,6 +114,17 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 			multiCfg.Metadata.Namespace = namespace
 		}
 		targetNamespace = multiCfg.Metadata.Namespace
+
+		// Validate individual service configs
+		for _, svcName := range multiCfg.ServiceOrder() {
+			svcCfg, err := multiCfg.ToAppConfig(svcName)
+			if err != nil {
+				return finalize(fmt.Errorf("failed to resolve service %q: %w", svcName, err))
+			}
+			if err := config.Validate(svcCfg); err != nil {
+				return finalize(fmt.Errorf("validation failed for service %q: %w", svcName, err))
+			}
+		}
 
 		// Render using multi-service renderer
 		renderer := render.NewMultiService(multiCfg)
@@ -155,6 +167,7 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 			cfg.Metadata.Namespace = namespace
 		}
 		targetNamespace = cfg.Metadata.Namespace
+		cfgForHistory = cfg
 
 		// Check if we have an image
 		if cfg.Spec.Image == "" && cfg.Spec.Build == nil {
@@ -286,18 +299,10 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Wait for rollout
-	if !noWait && bundle.Deployment != nil {
-		if err := engine.WaitForRollout(cmd.Context(), targetNS, bundle.Deployment.Name); err != nil {
-			return finalize(fmt.Errorf("rollout failed: %w\n  → Run 'kbox logs' to see pod logs\n  → Run 'kbox status' to check deployment state", err))
-		}
-	}
-
 	// Save release to history (single-service only for now)
-	if !isMulti {
-		cfg, _ := loader.Load()
+	if !isMulti && cfgForHistory != nil {
 		store := release.NewStore(client.Clientset, targetNS, appName)
-		revision, err := store.Save(cmd.Context(), cfg)
+		revision, err := store.Save(cmd.Context(), cfgForHistory)
 		if err != nil {
 			// Non-fatal - deployment succeeded
 			if !ciMode {
@@ -305,6 +310,13 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 			}
 		}
 		result.Revision = revision
+	}
+
+	// Wait for rollout
+	if !noWait && bundle.Deployment != nil {
+		if err := engine.WaitForRollout(cmd.Context(), targetNS, bundle.Deployment.Name); err != nil {
+			return finalize(fmt.Errorf("rollout failed: %w\n  → Run 'kbox logs' to see pod logs\n  → Run 'kbox status' to check deployment state", err))
+		}
 	}
 
 	// Mark success
@@ -430,7 +442,7 @@ func deployFromFile(cmd *cobra.Command, configFile, env, namespace, kubeContext 
 		if outputFormat == "json" {
 			output.NewWriter(os.Stdout, outputFormat, ciMode).WriteDeployResult(result)
 			if !result.Success {
-				os.Exit(1)
+				return fmt.Errorf("deploy failed")
 			}
 			return nil
 		}
@@ -597,13 +609,6 @@ func deployFromFile(cmd *cobra.Command, configFile, env, namespace, kubeContext 
 		}
 	}
 
-	// Wait for rollout
-	if !noWait && bundle.Deployment != nil {
-		if err := engine.WaitForRollout(cmd.Context(), targetNS, bundle.Deployment.Name); err != nil {
-			return finalize(fmt.Errorf("rollout failed: %w\n  → Run 'kbox logs' to see pod logs\n  → Run 'kbox status' to check deployment state", err))
-		}
-	}
-
 	// Save release to history
 	store := release.NewStore(client.Clientset, targetNS, appName)
 	revision, err := store.Save(cmd.Context(), cfg)
@@ -613,6 +618,13 @@ func deployFromFile(cmd *cobra.Command, configFile, env, namespace, kubeContext 
 		}
 	}
 	result.Revision = revision
+
+	// Wait for rollout
+	if !noWait && bundle.Deployment != nil {
+		if err := engine.WaitForRollout(cmd.Context(), targetNS, bundle.Deployment.Name); err != nil {
+			return finalize(fmt.Errorf("rollout failed: %w\n  → Run 'kbox logs' to see pod logs\n  → Run 'kbox status' to check deployment state", err))
+		}
+	}
 
 	// Mark success
 	result.Success = true
@@ -636,6 +648,6 @@ func init() {
 	deployCmd.Flags().Bool("dry-run", false, "Show what would be deployed without applying")
 	deployCmd.Flags().Bool("no-wait", false, "Don't wait for rollout to complete")
 	deployCmd.Flags().Duration("timeout", 5*time.Minute, "Timeout for rollout completion (e.g., 10m, 30s)")
-	deployCmd.Flags().Bool("prune", false, "Delete orphaned resources not in kbox.yaml")
+	deployCmd.Flags().Bool("prune", true, "Delete orphaned resources not in kbox.yaml (use --prune=false to disable)")
 	rootCmd.AddCommand(deployCmd)
 }

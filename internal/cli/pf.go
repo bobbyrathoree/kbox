@@ -28,7 +28,7 @@ Port format:
 Examples:
   kbox pf myapp 8080        # Forward localhost:8080 to pod:8080
   kbox pf myapp 9000:8080   # Forward localhost:9000 to pod:8080`,
-	Args: cobra.ExactArgs(2),
+	Args: exactArgs(2, "<app-name> <local-port>:<remote-port>"),
 	RunE: runPortForward,
 }
 

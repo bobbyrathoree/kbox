@@ -48,6 +48,26 @@ func Execute() error {
 	return nil
 }
 
+// exactArgs returns a PositionalArgs that reports a helpful error when wrong number of args provided
+func exactArgs(n int, usage string) cobra.PositionalArgs {
+	return func(cmd *cobra.Command, args []string) error {
+		if len(args) != n {
+			return fmt.Errorf("missing required argument: %s\n\nUsage:\n  %s", usage, cmd.UseLine())
+		}
+		return nil
+	}
+}
+
+// minimumArgs returns a PositionalArgs that reports a helpful error when too few args provided
+func minimumArgs(n int, usage string) cobra.PositionalArgs {
+	return func(cmd *cobra.Command, args []string) error {
+		if len(args) < n {
+			return fmt.Errorf("missing required argument: %s\n\nUsage:\n  %s", usage, cmd.UseLine())
+		}
+		return nil
+	}
+}
+
 func init() {
 	// Global flags can be added here
 	rootCmd.PersistentFlags().StringP("namespace", "n", "", "Kubernetes namespace (default: from kubeconfig)")

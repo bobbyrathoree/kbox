@@ -121,7 +121,7 @@ func runDev(ctx context.Context, opts devOptions) error {
 
 	if opts.watch {
 		fmt.Println("Watch mode enabled - will rebuild on file changes")
-		fmt.Println("(Note: watch mode is experimental, prefer manual trigger for reliability)")
+
 	} else {
 		fmt.Println("Press Enter to build & deploy (Ctrl+C to exit)")
 	}

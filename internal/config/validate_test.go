@@ -233,6 +233,34 @@ func TestIsValidName(t *testing.T) {
 	}
 }
 
+func TestValidate_UnsupportedDependencyType(t *testing.T) {
+	cfg := &AppConfig{
+		Metadata: Metadata{Name: "myapp"},
+		Spec:     AppSpec{Image: "myapp:v1", Dependencies: []DependencyConfig{{Type: "cassandra"}}},
+	}
+	err := Validate(cfg)
+	if err == nil {
+		t.Fatal("expected error for unsupported dependency type")
+	}
+	if !strings.Contains(err.Error(), "unsupported dependency type") {
+		t.Errorf("expected unsupported type error, got: %v", err)
+	}
+}
+
+func TestValidate_HealthCheckPathMustStartWithSlash(t *testing.T) {
+	cfg := &AppConfig{
+		Metadata: Metadata{Name: "myapp"},
+		Spec:     AppSpec{Image: "myapp:v1", HealthCheck: "health"},
+	}
+	err := Validate(cfg)
+	if err == nil {
+		t.Fatal("expected error for health check without leading /")
+	}
+	if !strings.Contains(err.Error(), "must start with '/'") {
+		t.Errorf("expected path error, got: %v", err)
+	}
+}
+
 // Tests for Issue #9: K8s quantity validation
 func TestValidate_InvalidQuantity(t *testing.T) {
 	tests := []struct {

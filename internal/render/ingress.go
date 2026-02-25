@@ -12,6 +12,11 @@ func (r *Renderer) RenderIngress() (*networkingv1.Ingress, error) {
 		return nil, nil
 	}
 
+	servicePort := int32(r.config.Spec.Port)
+	if r.config.Spec.Service != nil && r.config.Spec.Service.Port != 0 {
+		servicePort = int32(r.config.Spec.Service.Port)
+	}
+
 	// Set default path if not specified
 	path := cfg.Path
 	if path == "" {
@@ -36,7 +41,7 @@ func (r *Renderer) RenderIngress() (*networkingv1.Ingress, error) {
 								Service: &networkingv1.IngressServiceBackend{
 									Name: r.config.Metadata.Name,
 									Port: networkingv1.ServiceBackendPort{
-										Number: int32(r.config.Spec.Port),
+										Number: servicePort,
 									},
 								},
 							},
@@ -58,7 +63,7 @@ func (r *Renderer) RenderIngress() (*networkingv1.Ingress, error) {
 								Service: &networkingv1.IngressServiceBackend{
 									Name: r.config.Metadata.Name,
 									Port: networkingv1.ServiceBackendPort{
-										Number: int32(r.config.Spec.Port),
+										Number: servicePort,
 									},
 								},
 							},

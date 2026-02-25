@@ -28,7 +28,7 @@ Examples:
   kbox shell myapp              # Shell into myapp
   kbox shell myapp -c sidecar   # Shell into specific container
   kbox shell myapp -- ls -la    # Run a command instead of shell`,
-	Args: cobra.MinimumNArgs(1),
+	Args: minimumArgs(1, "<app-name>"),
 	RunE: runShell,
 }
 

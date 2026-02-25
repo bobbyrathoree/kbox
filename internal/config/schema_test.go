@@ -102,6 +102,40 @@ func TestForEnvironment(t *testing.T) {
 	}
 }
 
+func TestForEnvironment_DoesNotMutateOriginal(t *testing.T) {
+	cfg := &AppConfig{
+		Metadata: Metadata{Name: "myapp"},
+		Spec: AppSpec{
+			Image: "myapp:v1",
+			Env:   map[string]string{"KEY": "original"},
+		},
+		Environments: map[string]EnvOverride{
+			"prod": {Env: map[string]string{"KEY": "prod", "NEW": "val"}},
+		},
+	}
+
+	prodCfg, err := cfg.ForEnvironment("prod")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify original is not mutated
+	if cfg.Spec.Env["KEY"] != "original" {
+		t.Errorf("original env was mutated: KEY=%q", cfg.Spec.Env["KEY"])
+	}
+	if _, ok := cfg.Spec.Env["NEW"]; ok {
+		t.Error("original env has NEW key from prod overlay")
+	}
+
+	// Verify prod overlay applied
+	if prodCfg.Spec.Env["KEY"] != "prod" {
+		t.Errorf("prod env not applied: KEY=%q", prodCfg.Spec.Env["KEY"])
+	}
+	if prodCfg.Spec.Env["NEW"] != "val" {
+		t.Errorf("prod env missing NEW: got %q", prodCfg.Spec.Env["NEW"])
+	}
+}
+
 func TestForEnvironment_NoEnvironmentsDefined(t *testing.T) {
 	config := &AppConfig{
 		Metadata: Metadata{Name: "myapp"},

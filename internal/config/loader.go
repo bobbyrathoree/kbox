@@ -1,11 +1,13 @@
 package config
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 
-	"sigs.k8s.io/yaml"
+	sigyaml "sigs.k8s.io/yaml"
 )
 
 const (
@@ -45,8 +47,14 @@ func (l *Loader) LoadFile(path string) (*AppConfig, error) {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
 
+	// Check for unknown fields (non-fatal warnings)
+	warnings := checkUnknownFields(data)
+	for _, w := range warnings {
+		fmt.Fprintf(os.Stderr, "Warning: %s\n", w)
+	}
+
 	var config AppConfig
-	if err := yaml.Unmarshal(data, &config); err != nil {
+	if err := sigyaml.Unmarshal(data, &config); err != nil {
 		return nil, fmt.Errorf("failed to parse config file: %w\n  → Check YAML syntax at https://yaml.org/spec/", err)
 	}
 
@@ -123,6 +131,26 @@ func (l *Loader) LoadMultiServiceFile(path string) (*MultiServiceConfig, error) 
 	}
 
 	return cfg, nil
+}
+
+// checkUnknownFields attempts to detect unknown fields in the YAML config
+// Returns warnings for unknown fields (non-fatal)
+func checkUnknownFields(data []byte) []string {
+	// Convert YAML to JSON
+	jsonData, err := sigyaml.YAMLToJSON(data)
+	if err != nil {
+		return nil // If conversion fails, let the main parser handle it
+	}
+
+	// Try strict decode
+	var cfg AppConfig
+	decoder := json.NewDecoder(bytes.NewReader(jsonData))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&cfg); err != nil {
+		// Extract the error message as a warning
+		return []string{fmt.Sprintf("config contains unknown fields: %v", err)}
+	}
+	return nil
 }
 
 // InferFromDockerfile attempts to infer config from a Dockerfile

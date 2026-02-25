@@ -227,6 +227,24 @@ func printBundleSummary(bundle *render.Bundle) {
 		fmt.Printf("  NetworkPolicies: %d\n", len(bundle.NetworkPolicies))
 	}
 
+	// Ingresses
+	if len(bundle.Ingresses) > 0 {
+		fmt.Printf("  Ingresses:       %d\n", len(bundle.Ingresses))
+		for _, ing := range bundle.Ingresses {
+			host := "(wildcard)"
+			if len(ing.Spec.Rules) > 0 && ing.Spec.Rules[0].Host != "" {
+				host = ing.Spec.Rules[0].Host
+			}
+			fmt.Printf("    - %s (%s)\n", ing.Name, host)
+		}
+	}
+	if len(bundle.ServiceMonitors) > 0 {
+		fmt.Printf("  ServiceMonitors: %d\n", len(bundle.ServiceMonitors))
+	}
+	if len(bundle.ExternalSecrets) > 0 {
+		fmt.Printf("  ExternalSecrets: %d\n", len(bundle.ExternalSecrets))
+	}
+
 	// Dependencies
 	if len(bundle.StatefulSets) > 0 {
 		fmt.Printf("\n  Dependencies:\n")

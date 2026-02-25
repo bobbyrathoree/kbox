@@ -273,7 +273,7 @@ Use this before 'kbox deploy' to verify what will happen.`,
 		},
 	}
 
-	cmd.Flags().StringVarP(&environment, "environment", "e", "", "Target environment (uses overlay from kbox.yaml)")
+	cmd.Flags().StringVarP(&environment, "env", "e", "", "Target environment (uses overlay from kbox.yaml)")
 	cmd.Flags().StringVarP(&configFile, "file", "f", "", "Path to kbox.yaml config file")
 
 	return cmd

@@ -91,7 +91,11 @@ func (r *Renderer) RenderDeployment() (*appsv1.Deployment, error) {
 	container.EnvFrom = r.renderEnvFrom()
 
 	// Add resource requirements
-	container.Resources = r.renderResources()
+	resources, err := r.renderResources()
+	if err != nil {
+		return nil, fmt.Errorf("invalid resource config: %w", err)
+	}
+	container.Resources = resources
 
 	// Add health probes if healthCheck is specified
 	if cfg.Spec.HealthCheck != "" {
@@ -265,7 +269,7 @@ func (r *Renderer) renderEnvFrom() []corev1.EnvFromSource {
 	return envFrom
 }
 
-func (r *Renderer) renderResources() corev1.ResourceRequirements {
+func (r *Renderer) renderResources() (corev1.ResourceRequirements, error) {
 	resources := corev1.ResourceRequirements{
 		Requests: corev1.ResourceList{},
 		Limits:   corev1.ResourceList{},
@@ -273,21 +277,28 @@ func (r *Renderer) renderResources() corev1.ResourceRequirements {
 
 	cfg := r.config.Spec.Resources
 	if cfg == nil {
-		// Sensible defaults
+		// Sensible defaults — hardcoded compile-time constants, safe to MustParse
 		resources.Requests[corev1.ResourceMemory] = resource.MustParse("128Mi")
 		resources.Requests[corev1.ResourceCPU] = resource.MustParse("100m")
 		resources.Limits[corev1.ResourceMemory] = resource.MustParse("256Mi")
 		resources.Limits[corev1.ResourceCPU] = resource.MustParse("200m")
-		return resources
+		return resources, nil
 	}
 
 	// Memory
 	if cfg.Memory != "" {
-		mem := resource.MustParse(cfg.Memory)
+		mem, err := resource.ParseQuantity(cfg.Memory)
+		if err != nil {
+			return corev1.ResourceRequirements{}, fmt.Errorf("invalid memory request %q: %w", cfg.Memory, err)
+		}
 		resources.Requests[corev1.ResourceMemory] = mem
 		// Default limit to 2x request
 		if cfg.MemoryLimit != "" {
-			resources.Limits[corev1.ResourceMemory] = resource.MustParse(cfg.MemoryLimit)
+			memLimit, err := resource.ParseQuantity(cfg.MemoryLimit)
+			if err != nil {
+				return corev1.ResourceRequirements{}, fmt.Errorf("invalid memory limit %q: %w", cfg.MemoryLimit, err)
+			}
+			resources.Limits[corev1.ResourceMemory] = memLimit
 		} else {
 			memLimit := mem.DeepCopy()
 			memLimit.Add(mem)
@@ -297,11 +308,18 @@ func (r *Renderer) renderResources() corev1.ResourceRequirements {
 
 	// CPU
 	if cfg.CPU != "" {
-		cpu := resource.MustParse(cfg.CPU)
+		cpu, err := resource.ParseQuantity(cfg.CPU)
+		if err != nil {
+			return corev1.ResourceRequirements{}, fmt.Errorf("invalid CPU request %q: %w", cfg.CPU, err)
+		}
 		resources.Requests[corev1.ResourceCPU] = cpu
 		// Default limit to 2x request
 		if cfg.CPULimit != "" {
-			resources.Limits[corev1.ResourceCPU] = resource.MustParse(cfg.CPULimit)
+			cpuLimit, err := resource.ParseQuantity(cfg.CPULimit)
+			if err != nil {
+				return corev1.ResourceRequirements{}, fmt.Errorf("invalid CPU limit %q: %w", cfg.CPULimit, err)
+			}
+			resources.Limits[corev1.ResourceCPU] = cpuLimit
 		} else {
 			cpuLimit := cpu.DeepCopy()
 			cpuLimit.Add(cpu)
@@ -309,7 +327,7 @@ func (r *Renderer) renderResources() corev1.ResourceRequirements {
 		}
 	}
 
-	return resources
+	return resources, nil
 }
 
 // renderInitContainers creates init containers from config

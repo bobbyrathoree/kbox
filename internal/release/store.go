@@ -62,8 +62,29 @@ func (s *Store) configMapName() string {
 	return fmt.Sprintf("%s-releases", s.appName)
 }
 
-// Save stores a new release, returning the revision number
+// Save stores a new release, returning the revision number.
+// It retries on 409 Conflict errors to handle concurrent deploys that
+// race on the same ConfigMap (TOCTOU between reading and writing).
 func (s *Store) Save(ctx context.Context, cfg *config.AppConfig) (int, error) {
+	const maxRetries = 3
+	var lastErr error
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		rev, err := s.trySave(ctx, cfg)
+		if err == nil {
+			return rev, nil
+		}
+		if errors.IsConflict(err) {
+			lastErr = err
+			continue
+		}
+		return 0, err
+	}
+	return 0, fmt.Errorf("failed to save release after %d retries: %w", maxRetries, lastErr)
+}
+
+// trySave attempts a single save of a new release, returning the revision number.
+func (s *Store) trySave(ctx context.Context, cfg *config.AppConfig) (int, error) {
 	// Get existing releases
 	releases, err := s.List(ctx)
 	if err != nil && !errors.IsNotFound(err) {

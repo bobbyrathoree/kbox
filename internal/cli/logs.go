@@ -28,7 +28,7 @@ Examples:
   kbox logs myapp --no-follow  # Print recent logs and exit
   kbox logs myapp --previous   # Show previous container logs
   kbox logs myapp --no-events  # Disable event interleaving`,
-	Args: cobra.ExactArgs(1),
+	Args: exactArgs(1, "<app-name>"),
 	RunE: runLogs,
 }
 
@@ -112,8 +112,5 @@ func init() {
 	logsCmd.Flags().Int64("tail", 100, "Number of lines to show from the end")
 	logsCmd.Flags().BoolP("previous", "p", false, "Show previous container logs")
 	logsCmd.Flags().Bool("events", true, "Show K8s events interleaved with logs")
-	logsCmd.Flags().Bool("no-follow", false, "Don't follow, just print recent logs")
-	logsCmd.Flags().Bool("no-events", false, "Don't show K8s events")
-
 	rootCmd.AddCommand(logsCmd)
 }

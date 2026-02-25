@@ -588,6 +588,57 @@ func (c *AppConfig) ForEnvironment(env string) (*AppConfig, error) {
 	// Create a copy
 	result := *c
 
+	// Deep copy all map[string]string fields to avoid mutating the original
+	if c.Metadata.Labels != nil {
+		newLabels := make(map[string]string, len(c.Metadata.Labels))
+		for k, v := range c.Metadata.Labels {
+			newLabels[k] = v
+		}
+		result.Metadata.Labels = newLabels
+	}
+	if c.Spec.Env != nil {
+		newEnv := make(map[string]string, len(c.Spec.Env))
+		for k, v := range c.Spec.Env {
+			newEnv[k] = v
+		}
+		result.Spec.Env = newEnv
+	}
+	if c.Spec.Labels != nil {
+		newLabels := make(map[string]string, len(c.Spec.Labels))
+		for k, v := range c.Spec.Labels {
+			newLabels[k] = v
+		}
+		result.Spec.Labels = newLabels
+	}
+	if c.Spec.Annotations != nil {
+		newAnnotations := make(map[string]string, len(c.Spec.Annotations))
+		for k, v := range c.Spec.Annotations {
+			newAnnotations[k] = v
+		}
+		result.Spec.Annotations = newAnnotations
+	}
+	if c.Spec.PodAnnotations != nil {
+		newPodAnnotations := make(map[string]string, len(c.Spec.PodAnnotations))
+		for k, v := range c.Spec.PodAnnotations {
+			newPodAnnotations[k] = v
+		}
+		result.Spec.PodAnnotations = newPodAnnotations
+	}
+	if c.Spec.ServiceAnnotations != nil {
+		newServiceAnnotations := make(map[string]string, len(c.Spec.ServiceAnnotations))
+		for k, v := range c.Spec.ServiceAnnotations {
+			newServiceAnnotations[k] = v
+		}
+		result.Spec.ServiceAnnotations = newServiceAnnotations
+	}
+	if c.Spec.DeploymentAnnotations != nil {
+		newDeploymentAnnotations := make(map[string]string, len(c.Spec.DeploymentAnnotations))
+		for k, v := range c.Spec.DeploymentAnnotations {
+			newDeploymentAnnotations[k] = v
+		}
+		result.Spec.DeploymentAnnotations = newDeploymentAnnotations
+	}
+
 	// Apply overrides
 	if override.Replicas != nil {
 		result.Spec.Replicas = *override.Replicas

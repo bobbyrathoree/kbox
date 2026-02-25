@@ -73,9 +73,9 @@ func StartCanary(ctx context.Context, client *kubernetes.Clientset, namespace, n
 
 	// Calculate replicas based on weight
 	// If main has 10 replicas and weight is 20%, canary gets 2 replicas
-	totalReplicas := *mainDeploy.Spec.Replicas
-	if totalReplicas == 0 {
-		totalReplicas = 1
+	totalReplicas := int32(1)
+	if mainDeploy.Spec.Replicas != nil {
+		totalReplicas = *mainDeploy.Spec.Replicas
 	}
 
 	// Calculate canary replicas (minimum 1)
@@ -172,8 +172,14 @@ func GetCanaryStatus(ctx context.Context, client *kubernetes.Clientset, namespac
 		return nil, fmt.Errorf("failed to get main deployment: %w", err)
 	}
 
-	mainReplicas := *mainDeploy.Spec.Replicas
-	canaryReplicas := *canaryDeploy.Spec.Replicas
+	mainReplicas := int32(1)
+	if mainDeploy.Spec.Replicas != nil {
+		mainReplicas = *mainDeploy.Spec.Replicas
+	}
+	canaryReplicas := int32(1)
+	if canaryDeploy.Spec.Replicas != nil {
+		canaryReplicas = *canaryDeploy.Spec.Replicas
+	}
 	totalReplicas := mainReplicas + canaryReplicas
 
 	weight := 0

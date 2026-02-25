@@ -107,20 +107,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case statusMsg:
 		m.status = msg
 		m.lastError = nil
-		// Update metrics history
-		if msg != nil && msg.Deployment != nil {
-			// Simulate CPU/Memory for now (would come from metrics-server)
-			// This is placeholder until we add metrics-server integration
-			if len(m.cpuHist) >= 30 {
-				m.cpuHist = m.cpuHist[1:]
-			}
-			if len(m.memHist) >= 30 {
-				m.memHist = m.memHist[1:]
-			}
-			// Add some variation for visual effect
-			m.cpuHist = append(m.cpuHist, float64(20+len(m.cpuHist)%30))
-			m.memHist = append(m.memHist, float64(40+len(m.memHist)%20))
-		}
+		// Metrics require metrics-server integration (not yet implemented)
+		// cpuHist and memHist remain empty until real metrics are available
 		return m, nil
 
 	case podsMsg:
@@ -311,6 +299,9 @@ func (m Model) renderDeploymentContent() string {
 
 // renderMetricsContent renders CPU/Memory sparklines
 func (m Model) renderMetricsContent() string {
+	if len(m.cpuHist) == 0 && len(m.memHist) == 0 {
+		return "  Metrics: requires metrics-server\n  Install: kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml"
+	}
 	if len(m.cpuHist) == 0 {
 		return components.LabelStyle.Render("Gathering metrics...")
 	}

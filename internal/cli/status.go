@@ -24,7 +24,7 @@ Displays:
 Examples:
   kbox status myapp
   kbox status myapp -n production`,
-	Args: cobra.ExactArgs(1),
+	Args: exactArgs(1, "<app-name>"),
 	RunE: runStatus,
 }
 
