@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -21,7 +22,8 @@ func newRollbackCmd() *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "rollback [app]",
+		GroupID: "safety",
+		Use:     "rollback [app]",
 		Short: "Rollback to a previous release",
 		Long: `Rollback an application to a previous release.
 
@@ -133,6 +135,36 @@ a rollback if needed.`,
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show what would be rolled back without making changes")
 
 	return cmd
+}
+
+func formatRelativeTime(t time.Time) string {
+	now := time.Now().UTC()
+	diff := now.Sub(t)
+
+	switch {
+	case diff < time.Minute:
+		return "just now"
+	case diff < time.Hour:
+		mins := int(diff.Minutes())
+		if mins == 1 {
+			return "1 minute ago"
+		}
+		return fmt.Sprintf("%d minutes ago", mins)
+	case diff < 24*time.Hour:
+		hours := int(diff.Hours())
+		if hours == 1 {
+			return "1 hour ago"
+		}
+		return fmt.Sprintf("%d hours ago", hours)
+	case diff < 7*24*time.Hour:
+		days := int(diff.Hours() / 24)
+		if days == 1 {
+			return "1 day ago"
+		}
+		return fmt.Sprintf("%d days ago", days)
+	default:
+		return t.Format("Jan 02, 2006 15:04")
+	}
 }
 
 func init() {

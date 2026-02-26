@@ -18,24 +18,19 @@ var (
 
 var rootCmd = &cobra.Command{
 	Use:   "kbox",
-	Short: "The Bun of Kubernetes app workflows",
-	Long: `kbox - what kubectl should have been for app developers
+	Short: "The fastest way to deploy to Kubernetes",
+	Long: `kbox — deploy to Kubernetes in seconds, not hours.
 
-A single tool that turns K8s app lifecycle into simple commands:
-  kbox up       Build + deploy + stream logs (for development)
-  kbox deploy   Deploy pre-built images (for CI/CD pipelines)
-  kbox logs     Logs with K8s events interleaved
-  kbox shell    Shell into any container (even distroless)
-  kbox rollback Fast escape hatch
+Just have a Dockerfile? That's all you need:
 
-Which command should I use?
-  kbox up       → Use during development. Builds from Dockerfile, deploys, streams logs.
-  kbox deploy   → Use in CI/CD. Requires pre-built image in kbox.yaml or registry.
+  kbox up                    Build, deploy, stream logs
+  kbox add postgres          Add a database with one command
+  kbox down                  Clean teardown
 
 Get started:
-  kbox up              # Build + deploy current directory (just needs Dockerfile)
-  kbox init            # Create kbox.yaml for more control
-  kbox doctor          # Check your setup`,
+  kbox up                    # Zero-config deploy (just needs Dockerfile)
+  kbox init                  # Create kbox.yaml for more control
+  kbox doctor                # Check your setup`,
 	SilenceUsage:  true,
 	SilenceErrors: true,
 }
@@ -69,7 +64,15 @@ func minimumArgs(n int, usage string) cobra.PositionalArgs {
 }
 
 func init() {
-	// Global flags can be added here
+	// Command groups for organized --help
+	rootCmd.AddGroup(
+		&cobra.Group{ID: "core", Title: "Core Commands:"},
+		&cobra.Group{ID: "setup", Title: "Setup:"},
+		&cobra.Group{ID: "observe", Title: "Observe:"},
+		&cobra.Group{ID: "safety", Title: "Safety:"},
+	)
+
+	// Global flags
 	rootCmd.PersistentFlags().StringP("namespace", "n", "", "Kubernetes namespace (default: from kubeconfig)")
 	rootCmd.PersistentFlags().StringP("context", "", "", "Kubernetes context (default: current context)")
 	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "Enable verbose output")

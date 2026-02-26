@@ -13,6 +13,7 @@ import (
 )
 
 var logsCmd = &cobra.Command{
+	GroupID: "observe",
 	Use:   "logs <app>",
 	Short: "Stream logs from an app with K8s events interleaved",
 	Long: `Stream logs from all pods of an application.

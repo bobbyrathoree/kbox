@@ -17,6 +17,7 @@ import (
 )
 
 var deployCmd = &cobra.Command{
+	GroupID: "core",
 	Use:   "deploy",
 	Short: "Deploy an app to Kubernetes",
 	Long: `Deploy an application using kbox.yaml configuration.

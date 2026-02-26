@@ -23,8 +23,9 @@ func newInitCmd() *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "init",
-		Short: "Initialize a new kbox.yaml configuration",
+		GroupID: "setup",
+		Use:     "init",
+		Short:   "Initialize a new kbox.yaml configuration",
 		Long: `Create a new kbox.yaml configuration file for your application.
 
 This command will:

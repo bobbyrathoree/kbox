@@ -10,6 +10,7 @@ import (
 )
 
 var renderCmd = &cobra.Command{
+	GroupID: "safety",
 	Use:   "render",
 	Short: "Render Kubernetes manifests from kbox.yaml",
 	Long: `Render Kubernetes manifests without applying them.

@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -20,6 +21,7 @@ import (
 )
 
 var upCmd = &cobra.Command{
+	GroupID: "core",
 	Use:   "up",
 	Short: "Build and deploy with zero config",
 	Long: `Build and deploy an application with minimal configuration.
@@ -53,6 +55,8 @@ Examples:
 }
 
 func runUp(cmd *cobra.Command, args []string) error {
+	startTime := time.Now()
+
 	env, _ := cmd.Flags().GetString("env")
 	noLogs, _ := cmd.Flags().GetBool("no-logs")
 	namespace, _ := cmd.Flags().GetString("namespace")
@@ -88,6 +92,7 @@ func runUp(cmd *cobra.Command, args []string) error {
 	appName := filepath.Base(workDir)
 
 	// Try to load config, or infer from Dockerfile
+	step("Loading config...")
 	loader := config.NewLoader(workDir)
 	cfg, err := loader.Load()
 	if err != nil {
@@ -96,11 +101,12 @@ func runUp(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return fmt.Errorf("no kbox.yaml or Dockerfile found in %s\n  → Create a Dockerfile or run 'kbox init'", workDir)
 		}
-		fmt.Println("No kbox.yaml found. Using defaults:")
-		fmt.Printf("  name: %s (from directory)\n", cfg.Metadata.Name)
-		fmt.Printf("  port: %d (from Dockerfile EXPOSE)\n", cfg.Spec.Port)
-		fmt.Printf("  replicas: %d\n", cfg.Spec.Replicas)
+		dimInfo("No kbox.yaml found — using zero-config mode")
+		dimInfo(fmt.Sprintf("Detected: Dockerfile (port %d)", cfg.Spec.Port))
+		dimInfo("Tip: Run 'kbox init' to customize")
 		fmt.Println()
+	} else {
+		success("Config loaded")
 	}
 
 	// Use config name if available (overrides directory name)
@@ -114,7 +120,7 @@ func runUp(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
-		fmt.Printf("Using environment: %s\n", env)
+		dimInfo(fmt.Sprintf("Environment: %s", env))
 	}
 
 	// Override namespace if specified
@@ -167,26 +173,30 @@ func runUp(cmd *cobra.Command, args []string) error {
 	}
 
 	// Build image
-	fmt.Printf("Building image: %s\n", imageTag)
+	step("Building image...")
+	buildStart := time.Now()
 	if err := buildImageWithConfig(cmd.Context(), workDir, imageTag, cfg.Spec.Build); err != nil {
 		return fmt.Errorf("build failed: %w", err)
 	}
-	fmt.Println("  ✓ Image built")
+	success(fmt.Sprintf("Built in %s", time.Since(buildStart).Round(time.Millisecond*100)))
 
 	// Either push to registry or load into local cluster
 	if shouldPush {
-		fmt.Printf("Pushing image: %s\n", imageTag)
+		step("Pushing image to registry...")
+		pushStart := time.Now()
 		if err := pushImage(cmd.Context(), imageTag); err != nil {
 			return fmt.Errorf("push failed: %w", err)
 		}
-		fmt.Println("  ✓ Image pushed to registry")
+		success(fmt.Sprintf("Pushed in %s", time.Since(pushStart).Round(time.Millisecond*100)))
 	} else {
+		step("Loading image into cluster...")
+		loadStart := time.Now()
 		// Load into cluster (detect kind/minikube)
 		if err := loadImage(cmd.Context(), client.Context, imageTag); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to load image into cluster: %v\n", err)
-			fmt.Fprintf(os.Stderr, "If using a remote cluster, ensure the image is pushed to a registry.\n")
+			warn(fmt.Sprintf("Failed to load image into cluster: %v", err))
+			warn("If using a remote cluster, ensure the image is pushed to a registry.")
 		} else {
-			fmt.Println("  ✓ Image loaded into cluster")
+			success(fmt.Sprintf("Loaded in %s", time.Since(loadStart).Round(time.Millisecond*100)))
 		}
 	}
 
@@ -201,7 +211,8 @@ func runUp(cmd *cobra.Command, args []string) error {
 	}
 
 	// Deploy
-	fmt.Printf("\nDeploying to %s...\n", targetNS)
+	fmt.Println()
+	step(fmt.Sprintf("Deploying to %s...", targetNS))
 	engine := apply.NewEngine(client.Clientset, os.Stdout)
 	result, err := engine.Apply(cmd.Context(), bundle)
 	if err != nil {
@@ -216,6 +227,7 @@ func runUp(cmd *cobra.Command, args []string) error {
 
 	// Wait for rollout
 	if bundle.Deployment != nil {
+		step("Waiting for pods...")
 		if err := engine.WaitForRollout(cmd.Context(), targetNS, bundle.Deployment.Name); err != nil {
 			return fmt.Errorf("rollout failed: %w", err)
 		}
@@ -225,18 +237,22 @@ func runUp(cmd *cobra.Command, args []string) error {
 	store := release.NewStore(client.Clientset, targetNS, appName)
 	revision, err := store.Save(cmd.Context(), cfg)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to save release history: %v\n", err)
+		warn(fmt.Sprintf("Failed to save release history: %v", err))
 	}
 
+	// Print summary
 	fmt.Println()
-	fmt.Printf("✓ %s is running!\n", appName)
+	success(fmt.Sprintf("App running! (%s total)", time.Since(startTime).Round(time.Millisecond*100)))
+	dimInfo(fmt.Sprintf("Namespace: %s", targetNS))
+	dimInfo(fmt.Sprintf("Image: %s", imageTag))
 	if revision > 0 {
-		fmt.Printf("Release %s saved (rollback available)\n", release.FormatRevision(revision))
+		dimInfo(fmt.Sprintf("Release %s saved (rollback available)", release.FormatRevision(revision)))
 	}
+	fmt.Println()
 
 	// Stream logs unless disabled
 	if !noLogs {
-		fmt.Println("\nStreaming logs (Ctrl+C to stop)...")
+		step("Streaming logs (Ctrl+C to stop)")
 		fmt.Println()
 
 		// Set up context with cancellation

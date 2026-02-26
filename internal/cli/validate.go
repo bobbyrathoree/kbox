@@ -10,6 +10,7 @@ import (
 )
 
 var validateCmd = &cobra.Command{
+	GroupID: "safety",
 	Use:   "validate",
 	Short: "Validate kbox.yaml configuration",
 	Long: `Validate kbox.yaml syntax and configuration.

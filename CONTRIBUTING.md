@@ -2,6 +2,21 @@
 
 Thank you for your interest in contributing to kbox! This document provides guidelines and information for contributors.
 
+## Scope
+
+kbox intentionally ships **13 commands** organized into four groups:
+
+| Group | Commands |
+|-------|----------|
+| Core | `up`, `deploy`, `down`, `build` |
+| Setup | `init`, `add`, `doctor`, `version` |
+| Observe | `logs`, `status`, `render` |
+| Safety | `validate`, `rollback` |
+
+We keep the surface area small on purpose. New commands need a strong justification.
+Contributions that improve existing commands (better errors, more tests, faster
+feedback) are always welcome.
+
 ## Development Setup
 
 ### Prerequisites
@@ -49,13 +64,13 @@ go build -o kbox ./cmd/kbox
 kbox/
 ├── cmd/kbox/           # CLI entrypoint
 ├── internal/
-│   ├── cli/            # Command implementations
+│   ├── cli/            # Command implementations (13 commands + root)
 │   ├── config/         # Configuration loading and validation
 │   ├── render/         # Kubernetes manifest generation
 │   ├── apply/          # Server-Side Apply engine
 │   ├── k8s/            # Kubernetes client utilities
 │   ├── dependencies/   # Database dependency templates
-│   ├── secrets/        # Secret management (SOPS, .env)
+│   ├── secrets/        # Secret management (SOPS, .env, external)
 │   ├── release/        # Release history management
 │   └── output/         # Structured output formatting
 ├── examples/           # Example configurations
@@ -105,17 +120,17 @@ Add --strict flag to validate command
 
 ### Good First Issues
 
-- Improve error messages
-- Add more examples
-- Documentation improvements
-- Test coverage
+- Improve error messages for existing commands
+- Add more examples in `examples/`
+- Increase test coverage for the 13 commands
+- Improve `doctor` diagnostics
 
-### Feature Ideas
+### Higher Impact
 
-- Additional dependency types (elasticsearch, rabbitmq)
-- Prometheus metrics export
-- Custom resource support
-- Namespace management
+- Additional dependency types for `kbox add` (elasticsearch, rabbitmq)
+- Volume support in kbox.yaml
+- Init container support
+- Better validation rules in `kbox validate`
 
 ## Questions?
 

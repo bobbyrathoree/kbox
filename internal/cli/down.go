@@ -16,6 +16,7 @@ import (
 )
 
 var downCmd = &cobra.Command{
+	GroupID: "core",
 	Use:   "down",
 	Short: "Remove app resources from cluster",
 	Long: `Delete all Kubernetes resources created by kbox for this app.

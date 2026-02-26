@@ -11,6 +11,7 @@ import (
 )
 
 var statusCmd = &cobra.Command{
+	GroupID: "observe",
 	Use:   "status <app>",
 	Short: "Show status of an app",
 	Long: `Show comprehensive status of an application.

@@ -11,6 +11,7 @@ import (
 )
 
 var addCmd = &cobra.Command{
+	GroupID: "setup",
 	Use:   "add <dependency>",
 	Short: "Add a dependency to the app",
 	Long: `Add a managed dependency like postgres, redis, or mongodb.
@@ -113,6 +114,7 @@ func parseDependencySpec(spec string) (string, string) {
 }
 
 var removeCmd = &cobra.Command{
+	GroupID: "setup",
 	Use:   "remove <dependency>",
 	Short: "Remove a dependency from the app",
 	Long: `Remove a managed dependency from kbox.yaml.
