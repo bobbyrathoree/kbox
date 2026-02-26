@@ -350,6 +350,15 @@ func main() {
 	return dir
 }
 
+// getK8sClient returns the shared Kubernetes client for test assertions
+func getK8sClient(t *testing.T) kubernetes.Interface {
+	t.Helper()
+	if k8sClient == nil {
+		t.Fatal("k8sClient not initialized — TestMain not run?")
+	}
+	return k8sClient
+}
+
 // assertContains checks if output contains expected string
 func assertContains(t *testing.T, output, expected string) {
 	t.Helper()

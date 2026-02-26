@@ -38,8 +38,8 @@ CMD ["./server"]
 
 		// Should detect no kbox.yaml
 		assertContains(t, combined, "No kbox.yaml found")
-		assertContains(t, combined, "from Dockerfile EXPOSE")
-		assertContains(t, combined, "is running!")
+		assertContains(t, combined, "Detected: Dockerfile (port 8080)")
+		assertContains(t, combined, "App running!")
 	})
 
 	t.Run("deployment created correctly", func(t *testing.T) {

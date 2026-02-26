@@ -57,8 +57,9 @@ spec:
 		}
 
 		content, _ := os.ReadFile(configPath)
-		if !strings.Contains(string(content), "version: \"14\"") {
-			t.Errorf("Expected version: 14 in config, got: %s", string(content))
+		contentStr := string(content)
+		if !strings.Contains(contentStr, "version: \"14\"") && !strings.Contains(contentStr, "version: 14") {
+			t.Errorf("Expected version: 14 in config, got: %s", contentStr)
 		}
 	})
 }
@@ -135,13 +136,18 @@ spec:
 		}
 
 		// Check for injected env vars
+		// DATABASE_URL contains a password so it is injected via secretKeyRef
+		// PGHOST is a plain value
 		foundDBURL := false
 		foundPGHost := false
 		for _, env := range dep.Spec.Template.Spec.Containers[0].Env {
 			if env.Name == "DATABASE_URL" {
 				foundDBURL = true
-				if !strings.Contains(env.Value, "pg-test-app-postgres") {
-					t.Errorf("DATABASE_URL doesn't contain service name: %s", env.Value)
+				// DATABASE_URL is injected via secretKeyRef (contains password)
+				if env.ValueFrom == nil || env.ValueFrom.SecretKeyRef == nil {
+					t.Errorf("Expected DATABASE_URL to use secretKeyRef, got plain value: %s", env.Value)
+				} else if env.ValueFrom.SecretKeyRef.Name != "pg-test-app-postgres" {
+					t.Errorf("Expected DATABASE_URL secretKeyRef to reference pg-test-app-postgres, got %s", env.ValueFrom.SecretKeyRef.Name)
 				}
 			}
 			if env.Name == "PGHOST" {
@@ -218,8 +224,11 @@ spec:
 		for _, env := range dep.Spec.Template.Spec.Containers[0].Env {
 			if env.Name == "REDIS_URL" {
 				foundRedisURL = true
-				if !strings.Contains(env.Value, "redis-test-app-redis") {
-					t.Errorf("REDIS_URL doesn't contain service name: %s", env.Value)
+				// REDIS_URL is injected via secretKeyRef (contains password)
+				if env.ValueFrom == nil || env.ValueFrom.SecretKeyRef == nil {
+					t.Errorf("Expected REDIS_URL to use secretKeyRef, got plain value: %s", env.Value)
+				} else if env.ValueFrom.SecretKeyRef.Name != "redis-test-app-redis" {
+					t.Errorf("Expected REDIS_URL secretKeyRef to reference redis-test-app-redis, got %s", env.ValueFrom.SecretKeyRef.Name)
 				}
 			}
 		}

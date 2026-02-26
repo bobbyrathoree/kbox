@@ -161,8 +161,23 @@ func (e *Engine) Apply(ctx context.Context, bundle *render.Bundle) (*ApplyResult
 		fmt.Fprintf(e.out, "  ✓ StatefulSet/%s\n", ss.Name)
 	}
 
-	// Stage 3: Deployment (CRITICAL - the main workload)
-	if bundle.Deployment != nil {
+	// Stage 3: Deployments (CRITICAL - the main workload)
+	// Use Deployments slice if populated (multi-service), otherwise fall back to single Deployment
+	if len(bundle.Deployments) > 0 {
+		for _, dep := range bundle.Deployments {
+			created, err := e.applyDeployment(ctx, dep)
+			if err != nil {
+				result.Errors = append(result.Errors, fmt.Errorf("deployment %s: %w", dep.Name, err))
+				return result, fmt.Errorf("critical resource failed: deployment %s: %w", dep.Name, err)
+			}
+			if created {
+				result.Created = append(result.Created, fmt.Sprintf("Deployment/%s", dep.Name))
+			} else {
+				result.Updated = append(result.Updated, fmt.Sprintf("Deployment/%s", dep.Name))
+			}
+			fmt.Fprintf(e.out, "  ✓ Deployment/%s\n", dep.Name)
+		}
+	} else if bundle.Deployment != nil {
 		created, err := e.applyDeployment(ctx, bundle.Deployment)
 		if err != nil {
 			result.Errors = append(result.Errors, fmt.Errorf("deployment %s: %w", bundle.Deployment.Name, err))

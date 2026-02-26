@@ -362,11 +362,11 @@ services:
 		if !strings.Contains(stdout, "dryruntest-api") {
 			t.Error("Expected dryruntest-api in dry-run output")
 		}
-		if !strings.Contains(stdout, "kind: Deployment") {
+		if !strings.Contains(stdout, "Deployment:") {
 			t.Error("Expected Deployment in dry-run output")
 		}
-		if !strings.Contains(stdout, "kind: Service") {
-			t.Error("Expected Service in dry-run output")
+		if !strings.Contains(stdout, "Services:") {
+			t.Error("Expected Services in dry-run output")
 		}
 	})
 }

@@ -58,7 +58,7 @@ spec:
 
 		// Should NOT say "No kbox.yaml found"
 		assertNotContains(t, combined, "No kbox.yaml found")
-		assertContains(t, combined, "is running!")
+		assertContains(t, combined, "App running!")
 		assertContains(t, combined, "Release #1 saved")
 	})
 
