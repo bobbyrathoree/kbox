@@ -33,6 +33,16 @@ const (
 	DefaultTimeout = 5 * time.Minute
 )
 
+// RolloutError contains structured info about a rollout failure
+type RolloutError struct {
+	PodName string
+	Reason  string
+	Err     error
+}
+
+func (e *RolloutError) Error() string { return e.Err.Error() }
+func (e *RolloutError) Unwrap() error { return e.Err }
+
 // Engine handles applying Kubernetes resources
 type Engine struct {
 	client        *kubernetes.Clientset
@@ -336,8 +346,19 @@ func (e *Engine) WaitForRollout(ctx context.Context, namespace, name string) err
 								reason == "ImagePullBackOff" ||
 								reason == "ErrImagePull" {
 								fmt.Fprintf(e.out, "\r")
-								return fmt.Errorf("pod %s: %s\n  → Run 'kbox logs' to diagnose\n  → Run 'kbox status' to see events",
-									pod.Name, reason)
+								return &RolloutError{
+									PodName: pod.Name,
+									Reason:  reason,
+									Err:     fmt.Errorf("pod %s: %s", pod.Name, reason),
+								}
+							}
+						}
+						if cs.State.Terminated != nil && cs.State.Terminated.Reason == "OOMKilled" {
+							fmt.Fprintf(e.out, "\r")
+							return &RolloutError{
+								PodName: pod.Name,
+								Reason:  "OOMKilled",
+								Err:     fmt.Errorf("pod %s: OOMKilled", pod.Name),
 							}
 						}
 					}

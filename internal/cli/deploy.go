@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/bobbyrathoree/kbox/internal/apply"
 	"github.com/bobbyrathoree/kbox/internal/config"
+	"github.com/bobbyrathoree/kbox/internal/debug"
 	"github.com/bobbyrathoree/kbox/internal/k8s"
 	"github.com/bobbyrathoree/kbox/internal/output"
 	"github.com/bobbyrathoree/kbox/internal/release"
@@ -316,6 +318,15 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 	// Wait for rollout
 	if !noWait && bundle.Deployment != nil {
 		if err := engine.WaitForRollout(cmd.Context(), targetNS, bundle.Deployment.Name); err != nil {
+			// Auto-diagnose the failure
+			var rollErr *apply.RolloutError
+			if errors.As(err, &rollErr) {
+				report := debug.DiagnoseFailure(cmd.Context(), client.Clientset, targetNS, appName, rollErr.PodName, rollErr.Reason)
+				if report != "" {
+					fmt.Println()
+					diagnosisBox(report)
+				}
+			}
 			return finalize(fmt.Errorf("rollout failed: %w\n  → Run 'kbox logs' to see pod logs\n  → Run 'kbox status' to check deployment state", err))
 		}
 	}
@@ -623,6 +634,15 @@ func deployFromFile(cmd *cobra.Command, configFile, env, namespace, kubeContext 
 	// Wait for rollout
 	if !noWait && bundle.Deployment != nil {
 		if err := engine.WaitForRollout(cmd.Context(), targetNS, bundle.Deployment.Name); err != nil {
+			// Auto-diagnose the failure
+			var rollErr *apply.RolloutError
+			if errors.As(err, &rollErr) {
+				report := debug.DiagnoseFailure(cmd.Context(), client.Clientset, targetNS, appName, rollErr.PodName, rollErr.Reason)
+				if report != "" {
+					fmt.Println()
+					diagnosisBox(report)
+				}
+			}
 			return finalize(fmt.Errorf("rollout failed: %w\n  → Run 'kbox logs' to see pod logs\n  → Run 'kbox status' to check deployment state", err))
 		}
 	}

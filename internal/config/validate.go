@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/bobbyrathoree/kbox/internal/dependencies"
 	"k8s.io/apimachinery/pkg/api/resource"
 )
 
@@ -196,14 +197,15 @@ func Validate(config *AppConfig) error {
 	}
 
 	// Validate dependency types
-	supportedTypes := map[string]bool{
-		"postgres": true, "redis": true, "mongodb": true, "mysql": true,
+	supportedTypes := make(map[string]bool)
+	for _, t := range dependencies.SupportedTypes() {
+		supportedTypes[t] = true
 	}
 	for i, dep := range config.Spec.Dependencies {
 		if !supportedTypes[dep.Type] {
 			errs = append(errs, ValidationError{
 				Field:   fmt.Sprintf("spec.dependencies[%d].type", i),
-				Message: fmt.Sprintf("unsupported dependency type %q (supported: postgres, redis, mongodb, mysql)", dep.Type),
+				Message: fmt.Sprintf("unsupported dependency type %q (supported: %s)", dep.Type, strings.Join(dependencies.SupportedTypes(), ", ")),
 			})
 		}
 	}

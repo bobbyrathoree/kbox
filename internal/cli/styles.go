@@ -41,3 +41,13 @@ func warn(msg string) {
 func dimInfo(msg string) {
 	fmt.Println(dimStyle.Render("  " + msg))
 }
+
+// diagnosisBox prints a styled red box for deploy failure diagnosis
+func diagnosisBox(content string) {
+	style := lipgloss.NewStyle().
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("1")).
+		Padding(0, 1).
+		Width(72)
+	fmt.Fprintln(os.Stderr, style.Render(content))
+}

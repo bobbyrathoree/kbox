@@ -319,7 +319,7 @@ func dependencySecurityContext(depType string) *corev1.SecurityContext {
 	allowPrivilegeEscalation := false
 	// Databases need writable filesystem
 	readOnly := true
-	if depType == "postgres" || depType == "mysql" || depType == "mongodb" || depType == "redis" {
+	if depType == "postgres" || depType == "mysql" || depType == "mongodb" || depType == "redis" || depType == "blob" {
 		readOnly = false
 	}
 	return &corev1.SecurityContext{
@@ -380,6 +380,16 @@ func dependencyPodSecurityContext(depType string) *corev1.PodSecurityContext {
 			FSGroup:        &uid,
 			SeccompProfile: seccompProfile,
 		}
+	case "blob":
+		// MinIO runs as uid 1000 (minio user)
+		uid := int64(1000)
+		return &corev1.PodSecurityContext{
+			RunAsNonRoot:   &runAsNonRoot,
+			RunAsUser:      &uid,
+			RunAsGroup:     &uid,
+			FSGroup:        &uid,
+			SeccompProfile: seccompProfile,
+		}
 	default:
 		return defaultPodSecurityContext()
 	}
@@ -397,6 +407,8 @@ func getDataPath(depType string) string {
 	case "mongodb":
 		return "/data/db"
 	case "redis":
+		return "/data"
+	case "blob":
 		return "/data"
 	default:
 		return "/data"

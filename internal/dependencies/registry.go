@@ -121,6 +121,26 @@ var Registry = map[string]Template{
 		BackupCommand:  []string{"mysqldump", "-u", "root", "-p$(MYSQL_ROOT_PASSWORD)", "--all-databases"},
 		RestoreCommand: []string{"mysql", "-u", "root", "-p$(MYSQL_ROOT_PASSWORD)"},
 	},
+	"blob": {
+		Image:          "minio/minio",
+		DefaultVersion: "latest",
+		DefaultPort:    9000,
+		DefaultStorage: "5Gi",
+		SecretKeys:     []string{"MINIO_ROOT_PASSWORD"},
+		CommandArgs: []string{
+			"/bin/sh", "-c",
+			"export MINIO_ROOT_USER=kboxadmin && mkdir -p /data/kbox-default && minio server /data --console-address :9001",
+		},
+		EnvVars: map[string]string{
+			"AWS_ENDPOINT_URL_S3":   "http://{{.Service}}:9000",
+			"AWS_ACCESS_KEY_ID":     "kboxadmin",
+			"AWS_SECRET_ACCESS_KEY": "{{.Password}}",
+			"AWS_REGION":            "us-east-1",
+			"S3_BUCKET":             "kbox-default",
+		},
+		HealthCheck:    []string{"curl", "-sf", "http://localhost:9000/minio/health/live"},
+		ConnectCommand: nil,
+	},
 }
 
 // Get returns a template for the given type

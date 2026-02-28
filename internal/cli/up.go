@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -229,6 +230,15 @@ func runUp(cmd *cobra.Command, args []string) error {
 	if bundle.Deployment != nil {
 		step("Waiting for pods...")
 		if err := engine.WaitForRollout(cmd.Context(), targetNS, bundle.Deployment.Name); err != nil {
+			// Auto-diagnose the failure
+			var rollErr *apply.RolloutError
+			if errors.As(err, &rollErr) {
+				report := debug.DiagnoseFailure(cmd.Context(), client.Clientset, targetNS, appName, rollErr.PodName, rollErr.Reason)
+				if report != "" {
+					fmt.Println()
+					diagnosisBox(report)
+				}
+			}
 			return fmt.Errorf("rollout failed: %w", err)
 		}
 	}
